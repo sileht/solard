@@ -67,15 +67,20 @@ def enable_ambient_light(conf):
 def get_ambient_light(conf):
     path = als_input_syspath_map[conf.ambient_light_sensor]
     value = int(read_sys_value(path))
+    LOG.info("Get ambient light (raw): %s)" % value)
 
     # This mapping have been done for Asus Zenbook UX303UA, but according
     # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
     # previous/other Zenbook can report only 5 values
     # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
-    percent = int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) / 10 * 10);
-    LOG.info("Get ambient light: %d%% (%s)" % (percent, value))
+    #percent = int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) / 10 * 10);
+    if value > 0:
+        percent = int(math.log10(value) / 5.0 * 100.0 *
+                      conf.ambient_light_factor)
+    else:
+        percent = 0
+    LOG.info("Get ambient light (normalized): %s" % percent)
 
-    percent += conf.ambient_light_compensation
     if percent < 10:
         percent = 10
     elif percent > 100:
@@ -163,10 +168,10 @@ def main():
                         default=available_als_modules[0],
                         choices=available_als_modules,
                         help="Ambient Light Sensor kernel module")
-    parser.add_argument("--ambient-light-compensation",
-                        default=0,
-                        type=int,
-                        help="Ambient Light Sensor percentage compensation")
+    parser.add_argument("--ambient-light-factor",
+                        default=1.5,
+                        type=float,
+                        help="Ambient Light Sensor percentage factor")
 
     conf = parser.parse_args()
 
