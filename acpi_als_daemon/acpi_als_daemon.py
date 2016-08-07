@@ -81,8 +81,8 @@ def get_ambient_light(conf):
         percent = 0
     LOG.info("Get ambient light (normalized): %s" % percent)
 
-    if percent < 10:
-        percent = 10
+    if percent < conf.screen_backlight_min:
+        percent = conf.screen_backlight_min
     elif percent > 100:
         percent = 100
     LOG.info("Normalized ambient light: %d%% (%s)" % (percent, value))
@@ -156,6 +156,10 @@ def main():
     parser.add_argument('--only-once', action='store_true',
                         help="Set values once and exit.")
 
+    parser.add_argument("--screen-backlight-min", "-m",
+                        default=10,
+                        type=int,
+                        help="Minimal percent of brightness")
     parser.add_argument("--screen-backlight", "-s",
                         default=available_screen_backlight_modules[0],
                         choices=available_screen_backlight_modules,
