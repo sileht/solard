@@ -19,7 +19,7 @@ The 'als' module can also be installed on new kernel if the new one don't work a
 
 als module installation if needed
 ---------------------------------
-If you have a kernel < 4.2 o, you have to install this module https://github.com/danieleds/als
+If you have a kernel < 4.2, you have to install this module https://github.com/danieleds/als
 
 Under root::
 
