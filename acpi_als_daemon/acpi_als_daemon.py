@@ -185,14 +185,21 @@ def main():
     conf.screen_backlight_max = get_screen_backlight_max(conf)
 
     enable_ambient_light(conf)
+    last_ambient_light = 0
+    delta_change = 5
     while True:
         try:
             if lid_is_closed():
                 set_keyboard_backlight(conf, 0)
             else:
                 ambient_light = get_ambient_light(conf)
-                set_keyboard_backlight(conf, ambient_light)
-                set_screen_backlight(conf, ambient_light)
+                changed_enough = abs(ambient_light - last_ambient_light) > delta_change
+                if changed_enough:
+                    print("Change brightness from %d%% to %d%%" %
+                          (last_ambient_light, ambient_light))
+                    set_keyboard_backlight(conf, ambient_light)
+                    set_screen_backlight(conf, ambient_light)
+                    last_ambient_light = ambient_light
         except BaseException:
             LOG.exception("Something wrong append, retrying later.")
 
