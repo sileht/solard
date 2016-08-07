@@ -2,6 +2,8 @@
 acpi-als-daemon
 ===============================
 
+ACPI Screen and Keyboard backlight controls via Ambient Light Sensor
+
 Small python program that read via als or acpi_als module the Ambient Light Sensor value
 and configure the screen and keyboard backlight.
 
