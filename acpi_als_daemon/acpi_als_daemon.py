@@ -39,20 +39,20 @@ supported_keyboard_backlight_modules = ["asus::kbd_backlight"]
 
 
 def read_sys_value(path):
-    LOG.info("cat %s" % path)
+    LOG.debug("cat %s" % path)
     with open(path) as f:
         return f.read().strip()
 
 
 def write_sys_value(path, value):
-    LOG.info("echo %s > %s" % (value, path))
+    LOG.debug("echo %s > %s" % (value, path))
     with open(path, 'w') as f:
         f.write(value)
 
 
 def lid_is_closed():
     value = read_sys_value(lid_syspath)
-    LOG.info("LID is %s" % value)
+    LOG.debug("LID is %s" % value)
     return value == "closed"
 
 
@@ -67,7 +67,7 @@ def enable_ambient_light(conf):
 def get_ambient_light(conf):
     path = als_input_syspath_map[conf.ambient_light_sensor]
     value = int(read_sys_value(path))
-    LOG.info("Get ambient light (raw): %s)" % value)
+    LOG.debug("Get ambient light (raw): %s)" % value)
 
     # This mapping have been done for Asus Zenbook UX303UA, but according
     # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
@@ -79,13 +79,11 @@ def get_ambient_light(conf):
                       conf.ambient_light_factor)
     else:
         percent = 0
-    LOG.info("Get ambient light (normalized): %s" % percent)
-
     if percent < conf.screen_backlight_min:
         percent = conf.screen_backlight_min
     elif percent > 100:
         percent = 100
-    LOG.info("Normalized ambient light: %d%% (%s)" % (percent, value))
+    LOG.info("Get ambient light (normalized): %s" % percent)
     return percent
 
 
