@@ -168,7 +168,7 @@ def main():
                         default=available_als_modules[0],
                         choices=available_als_modules,
                         help="Ambient Light Sensor kernel module")
-    parser.add_argument("--ambient-light-factor",
+    parser.add_argument("--ambient-light-factor", "-f",
                         default=1.5,
                         type=float,
                         help="Ambient Light Sensor percentage factor")
