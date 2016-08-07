@@ -1,11 +1,17 @@
 ===============================
-py-acpi-als
+acpi-als-daemon
 ===============================
 
 Small python program that read via als or acpi_als module the Ambient Light Sensor value
 and configure the screen and keyboard backlight.
 
-Tested only on Asus Zenbook UX303UA
+Many thanks to `danieleds <https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller>`_
+and `Perlover <https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller>`_. They have done all the
+hard work, I have just rewritten a python version, that doesn't need to be compiled.
+
+Tested on my Asus Zenbook UX303UA
+
+Pull request are welcome.
 
 * Free software: Apache license
 
@@ -13,7 +19,7 @@ Installation
 ============
 
 This software needs a kernel module to work. Recent kernel (>=4.2) have the acpi_als module and old kernel you
-can install the out of tree `als module <https://github.com/danieleds/als>`
+can install the out of tree `als module <https://github.com/danieleds/als>`_
 
 The 'als' module can also be installed on new kernel if the new one don't work as expected.
 
@@ -42,9 +48,14 @@ To expose them, you can try to set the boot option acpi_osi='!Windows 2012' (e.g
 py-acpi-call installation with cp
 ---------------------------------
 
-   cp
+   cp acpi_als_daemon/acpi_als_daemon.py /usr/local/bin/acpi-als-daemon
+   # Test it with :
+   acpi-als-daemon --only-once -v
+   # Start it on boot
+   echo "nohup /usr/local/bin/acpi-als-daemon >/dev/null 2>&1 &"
+
 
 py-acpi-call installation with pip
 ----------------------------------
 
-    pip install
+    coming soon
