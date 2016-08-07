@@ -32,10 +32,6 @@ als_input_syspath_map = {
     "acpi_als": os.path.join(als_syspath, "iio:device0/in_illuminance_input") % "acpi_als",
     "als": os.path.join(als_syspath, "ali") % "als"
 }
-als_enablement_syspath_map = {
-    "acpi_als": os.path.join(als_syspath, "iio:device0/scan_elements/in_illuminance_en") % "acpi_als",
-    "als": os.path.join(als_syspath, "enable") % "als"
-}
 
 keyboard_backlight_syspath = "/sys/class/leds/%s/brightness"
 supported_keyboard_backlight_modules = ["asus::kbd_backlight"]
@@ -60,8 +56,10 @@ def lid_is_closed():
 
 
 def enable_ambient_light(conf):
-    LOG.info("Enable ambient light")
-    path = als_enablement_syspath_map[conf.ambient_light_sensor]
+    if conf.ambient_light_sensor != "als":
+        return
+    LOG.info("Enable als ambient light")
+    path = os.path.join(als_syspath, "enable") % "als"
     write_sys_value(path, "1")
 
 
@@ -75,12 +73,13 @@ def get_ambient_light(conf):
     # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
     percent = int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) / 10 * 10);
     LOG.info("Get ambient light: %d%% (%s)" % (percent, value))
-    percent += conf.ambient_light_compensation
 
+    percent += conf.ambient_light_compensation
     if percent < 10:
         percent = 10
     elif percent > 100:
         percent = 100
+    LOG.info("Normalized ambient light: %d%% (%s)" % (percent, value))
     return percent
 
 
@@ -185,7 +184,6 @@ def main():
     conf.screen_backlight_max = get_screen_backlight_max(conf)
 
     enable_ambient_light(conf)
-    last_ambient_light = get_ambient_light(conf)
     while True:
         try:
             if lid_is_closed():
@@ -194,7 +192,6 @@ def main():
                 ambient_light = get_ambient_light(conf)
                 set_keyboard_backlight(conf, ambient_light)
                 set_screen_backlight(conf, ambient_light)
-                last_ambient_light = ambient_light
         except BaseException:
             LOG.exception("Something wrong append, retrying later.")
 
