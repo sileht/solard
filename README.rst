@@ -58,11 +58,18 @@ py-acpi-call installation with cp
    cp acpi_als_daemon/acpi_als_daemon.py /usr/local/bin/acpi-als-daemon
    # Test it with :
    acpi-als-daemon -v
-   # Start it on boot
-   echo "nohup /usr/local/bin/acpi-als-daemon >/dev/null 2>&1 &"
 
 
 py-acpi-call installation with pip
 ----------------------------------
 
     coming soon
+
+systemd service installation
+----------------------------
+
+Service assumes that binary is installed in /usr/local/bin::
+
+    cp systemd/acpi-als-daemon.service /etc/systemd/system/multi-user.target.wants/acpi-als-daemon.service
+    systemctl daemon-reload
+    systemctl start acpi-als-daemon

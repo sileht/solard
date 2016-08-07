@@ -1,0 +1,11 @@
+[Unit]
+Description=Ambient Light Sensor Service
+After=network.target auditd.service
+
+[Service]
+ExecStart=/usr/local/bin/acpi-als-daemon -v
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
