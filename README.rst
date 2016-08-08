@@ -11,6 +11,8 @@ Many thanks to `danieleds <https://github.com/danieleds/Asus-Zenbook-Ambient-Lig
 and `Perlover <https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller>`_. They have done all the
 hard work, I have just rewritten a python version, that doesn't need to be compiled.
 
+This version also don't need to run as root if xbacklight is installed.
+
 Tested on my Asus Zenbook UX303UA
 
 Pull request are welcome.
@@ -46,30 +48,25 @@ Under root::
 acpi compatibility
 ------------------
 
-On most asus laptop, the ambient light sensor in not exposed by default.
+On most asus laptop, the ambient light sensor in not exposed by default because
+of `kernel bug in i915 module <http://www.spinics.net/lists/intel-gfx/msg79628.html>`_.
 
-To expose them, you can try to set the boot option acpi_osi='!Windows 2012'
+To expose them two methods:
+
+* You can try to set the boot option acpi_osi='!Windows 2012'
 (e.g. at the end of GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub), then
-"sudo update-grub" and then reboot.
+"sudo update-grub" and then reboot. This will disable the Fn+f5 and fn+f6 keys
 
-py-acpi-call installation with cp
----------------------------------
+* Or you can rebuild your kernel with this workaround: https://lkml.org/lkml/2014/2/11/1032
 
-   cp acpi_als_daemon/acpi_als_daemon.py /usr/local/bin/acpi-als-daemon
-   # Test it with :
-   acpi-als-daemon -v
+Run it as non-root
+------------------
+
+   apt-get install -y xbacklight
+   ./acpi_als_daemon/acpi_als_daemon.py -v
 
 
 py-acpi-call installation with pip
 ----------------------------------
 
     coming soon
-
-systemd service installation
-----------------------------
-
-Service assumes that binary is installed in /usr/local/bin::
-
-    cp systemd/acpi-als-daemon.service /etc/systemd/system/multi-user.target.wants/acpi-als-daemon.service
-    systemctl daemon-reload
-    systemctl start acpi-als-daemon
