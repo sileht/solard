@@ -115,34 +115,25 @@ def get_screen_backlight_max(conf):
 
 
 def get_screen_backlight(conf):
-    if conf.screen_backlight_method == "xbacklight":
-        value = float(subprocess.check_output("xbacklight -get",
-                                              shell=True).strip())
-    else:
-        try:
-            value = float(read_sys_value(os.path.join(
-                screen_backlight_syspath, conf.screen_backlight, "brightness")))
-        except IOError:
-            LOG.error("Fail to get screen brightness, "
-                      "are udev rules configured correctly ? "
-                      "or xbacklight installed ?")
+    try:
+        value = float(read_sys_value(os.path.join(
+            screen_backlight_syspath, conf.screen_backlight, "brightness")))
+    except IOError:
+        LOG.error("Fail to get screen brightness, "
+                  "are udev rules configured correctly ? ")
     LOG.debug("Current brightness: %s" % value)
     return value
 
 def set_screen_backlight(conf, value):
     raw_value = int(conf.screen_backlight_max * value / 100)
     LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
-    if conf.screen_backlight_method == "xbacklight":
-        subprocess.check_call("xbacklight -set %d" % value, shell=True)
-    else:
-        try:
-            write_sys_value(os.path.join(screen_backlight_syspath,
-                                         conf.screen_backlight, "brightness"),
-                            "%d" % raw_value)
-        except IOError:
-            LOG.error("Fail to set screen brightness, "
-                      "are udev rules configured correctly ? "
-                      "or xbacklight installed ?")
+    try:
+        write_sys_value(os.path.join(screen_backlight_syspath,
+                                        conf.screen_backlight, "brightness"),
+                        "%d" % raw_value)
+    except IOError:
+        LOG.error("Fail to set screen brightness, "
+                  "are udev rules configured correctly ? ")
 
 
 def set_keyboard_backlight(conf, percent):
@@ -207,11 +198,6 @@ def main():
                         default=10,
                         type=int,
                         help="Minimal percent of allowed brightness")
-    parser.add_argument("--screen-backlight-method",
-                        default="xbacklight",
-                        choices=["xbacklight", "kernel-module"],
-                        help=("Method to set brightness "
-                              "xbacklight/kernel-module[need-root])"))
     parser.add_argument("--screen-backlight", "-s",
                         default=available_screen_backlight_modules[0],
                         choices=available_screen_backlight_modules,

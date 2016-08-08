@@ -67,6 +67,7 @@ priviledge. You can add the following /etc/udev/rules.d/99-als.conf::
 
     KERNEL=="asus::kbd_backlight", SUBSYSTEM=="leds", RUN+="/bin/chmod 0666 /sys/class/leds/asus::kbd_backlight/brightness"
     KERNEL=="ACPI0008:00", SUBSYSTEM=="acpi", DRIVER=="als", RUN+="/bin/chmod 0666 /sys/devices/platform/ACPI0008:00/firmware_node/ali /sys/devices/platform/ACPI0008:00/firmware_node/enable"
+    KERNEL=="intel_backlight", SUBSYSTEM=="backlight", RUN+="/bin/chmod 666 /sys/class/backlight/intel_backlight/brightness"
 
 And then reload udev rules::
 
