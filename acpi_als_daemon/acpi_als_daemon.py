@@ -253,7 +253,7 @@ def main():
     conf.screen_brightness_max = get_screen_brightness_max(conf)
 
     enable_ambient_light(conf)
-    last_ambient_light = 61
+    last_ambient_light = -1
     last_screen_brightness = -1
     last_keyboard_brightness = -1
     while True:
@@ -262,7 +262,9 @@ def main():
             keyboard_brightness = get_keyboard_brightness(conf)
             changed_outside = (screen_brightness != last_screen_brightness or
                                keyboard_brightness != last_keyboard_brightness)
-            if conf.stop_on_outside_change and changed_outside:
+            if (conf.stop_on_outside_change
+                    and changed_outside
+                    and last_ambient_light != -1):
                 LOG.info("Brightness changed outside, exiting")
                 sys.exit(0)
 
