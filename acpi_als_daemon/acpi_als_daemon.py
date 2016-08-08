@@ -114,6 +114,21 @@ def get_screen_backlight_max(conf):
     return value
 
 
+def get_screen_backlight(conf):
+    if conf.screen_backlight_method == "xbacklight":
+        value = float(subprocess.check_output("xbacklight -get",
+                                              shell=True).strip())
+    else:
+        try:
+            value = float(read_sys_value(os.path.join(
+                screen_backlight_syspath, conf.screen_backlight, "brightness")))
+        except IOError:
+            LOG.error("Fail to get screen brightness, "
+                      "are udev rules configured correctly ? "
+                      "or xbacklight installed ?")
+    LOG.debug("Current brightness: %s" % value)
+    return value
+
 def set_screen_backlight(conf, value):
     raw_value = int(conf.screen_backlight_max * value / 100)
     LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
@@ -186,6 +201,8 @@ def main():
     parser.add_argument('--only-once', action='store_true',
                         help="Set values once and exit.")
 
+    parser.add_argument("--stop-on-outside-change", action='store_true',
+                        help="If brightness is changed outside the daemon stop.")
     parser.add_argument("--screen-backlight-min", "-m",
                         default=10,
                         type=int,
@@ -239,8 +256,14 @@ def main():
 
     enable_ambient_light(conf)
     last_ambient_light = 0
+    last_brightness = get_screen_backlight(conf)
     while True:
         try:
+            brightness = get_screen_backlight(conf)
+            if conf.stop_on_outside_change and brightness != last_brightness:
+                LOG.info("Brightness changed outside, exiting")
+                sys.exit(0)
+
             if lid_is_closed():
                 set_keyboard_backlight(conf, 0)
             else:
@@ -253,7 +276,8 @@ def main():
                     set_keyboard_backlight(conf, ambient_light)
                     set_screen_backlight(conf, ambient_light)
                     last_ambient_light = ambient_light
-        except BaseException:
+                    last_brightness = get_screen_backlight(conf)
+        except Exception:
             LOG.exception("Something wrong append, retrying later.")
 
         if conf.only_once:
