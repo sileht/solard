@@ -19,7 +19,15 @@ import os
 import time
 import sys
 
-LOG = logging.getLogger(__name__)
+TRACE = 5
+logging.addLevelName(TRACE, 'TRACE')
+
+class LoggerAdapter(logging.LoggerAdapter):
+    def trace(self, msg, *args, **kwargs):
+        self.log(TRACE, msg, *args, **kwargs)
+
+
+LOG = LoggerAdapter(logging.getLogger("acpi-als-daemon"), {})
 
 lid_syspath = "/proc/acpi/button/lid/LID/state"
 
@@ -39,27 +47,27 @@ supported_keyboard_backlight_modules = ["asus::kbd_backlight"]
 
 
 def read_sys_value(path):
-    LOG.debug("cat %s" % path)
+    LOG.trace("cat %s" % path)
     with open(path) as f:
         return f.read().strip()
 
 
 def write_sys_value(path, value):
-    LOG.debug("echo %s > %s" % (value, path))
+    LOG.trace("echo %s > %s" % (value, path))
     with open(path, 'w') as f:
         f.write(value)
 
 
 def lid_is_closed():
     value = read_sys_value(lid_syspath)
-    LOG.debug("LID is %s" % value)
+    LOG.trace("LID is %s" % value)
     return value == "closed"
 
 
 def enable_ambient_light(conf):
     if conf.ambient_light_sensor != "als":
         return
-    LOG.info("Enable als ambient light")
+    LOG.debug("Enable als ambient light")
     path = os.path.join(als_syspath, "enable") % "als"
     write_sys_value(path, "1")
 
@@ -67,7 +75,7 @@ def enable_ambient_light(conf):
 def get_ambient_light(conf):
     path = als_input_syspath_map[conf.ambient_light_sensor]
     value = int(read_sys_value(path))
-    LOG.debug("Get ambient light (raw): %s)" % value)
+    LOG.trace("Get ambient light (raw): %s)" % value)
 
     # This mapping have been done for Asus Zenbook UX303UA, but according
     # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
@@ -83,7 +91,7 @@ def get_ambient_light(conf):
         percent = conf.screen_backlight_min
     elif percent > 100:
         percent = 100
-    LOG.info("Get ambient light (normalized): %s" % percent)
+    LOG.debug("Get ambient light (normalized): %s" % percent)
     return percent
 
 
@@ -91,13 +99,13 @@ def get_screen_backlight_max(conf):
     value = int(read_sys_value(
         os.path.join(screen_backlight_syspath, conf.screen_backlight,
                      "max_brightness")))
-    LOG.info("Get screen backlight maximum: %d", value)
+    LOG.debug("Get screen backlight maximum: %d", value)
     return value
 
 
 def set_screen_backlight(conf, value):
     raw_value = int(conf.screen_backlight_max * value / 100)
-    LOG.info("Set screen backlight to %d%% (%d)" % (value, raw_value))
+    LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
     write_sys_value(os.path.join(screen_backlight_syspath,
                                  conf.screen_backlight, "brightness"),
                     "%s" % raw_value)
@@ -110,7 +118,7 @@ def set_keyboard_backlight(conf, percent):
     elif percent < 14: value = 2
     elif percent < 21: value = 1
     else: value = 0
-    LOG.info("Set keyboard backlight to %s", value)
+    LOG.debug("Set keyboard backlight to %s", value)
     write_sys_value(keyboard_backlight_syspath % conf.keyboard_backlight,
                     "%s" % value)
 
@@ -147,7 +155,8 @@ def main():
         description=("Screen and Keyboard backlight controls via "
                      "Ambient Light Sensor ")
     )
-    parser.add_argument('--verbose', '-v', action='count', default=0)
+    parser.add_argument('--verbose', '-v', action='store_true')
+    parser.add_argument('--debug', '-d', action='store_true')
     parser.add_argument('--quiet', '-q', action='store_true')
     parser.add_argument('--log', help="log file, disable stdout output and set log level to DEBUG")
 
@@ -177,15 +186,19 @@ def main():
 
     conf = parser.parse_args()
 
-    if conf.quiet:
-        conf.verbose = -1
-        conf.ssh_verbose = -1
     if conf.log:
         logging.basicConfig(filename=conf.log, level=logging.DEBUG)
-        LOG.info("Log level set to DEBUG")
+        LOG.debug("Log level set to DEBUG")
     else:
-        logging.basicConfig(level={-1: logging.ERROR, 0: logging.WARNING,
-                                   1: logging.INFO}.get(conf.verbose, logging.DEBUG))
+        if conf.debug:
+            level = TRACE
+        elif conf.verbose:
+            level = logging.DEBUG
+        elif conf.quiet:
+            level = logging.ERROR
+        else:
+            level = logging.INFO
+        logging.basicConfig(level=level)
 
 
     # Set additionnal static configuration
@@ -202,8 +215,8 @@ def main():
                 ambient_light = get_ambient_light(conf)
                 changed_enough = abs(ambient_light - last_ambient_light) > delta_change
                 if changed_enough:
-                    print("Change brightness from %d%% to %d%%" %
-                          (last_ambient_light, ambient_light))
+                    LOG.info("Change brightness from %d%% to %d%%" %
+                             (last_ambient_light, ambient_light))
                     set_keyboard_backlight(conf, ambient_light)
                     set_screen_backlight(conf, ambient_light)
                     last_ambient_light = ambient_light
