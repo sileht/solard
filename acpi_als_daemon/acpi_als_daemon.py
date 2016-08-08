@@ -269,8 +269,9 @@ def main():
                 set_keyboard_brightness(conf, 0)
             else:
                 ambient_light = get_ambient_light(conf)
-                changed_enough = (abs(ambient_light - last_ambient_light) >
+                changed_enough = ((abs(ambient_light - last_ambient_light) >
                                   conf.ambient_light_delta_update)
+                                  or changed_outside)
                 if changed_enough:
                     LOG.info("Change brightness from %d%% to %d%%" %
                              (last_ambient_light, ambient_light))
