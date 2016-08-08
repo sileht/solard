@@ -90,17 +90,16 @@ def get_ambient_light(conf):
     # This mapping have been done for Asus Zenbook UX303UA, but according
     # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
     # previous/other Zenbook can report only 5 values
-    # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
-    #percent = int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) / 10 * 10);
-    if value > 0:
-        percent = int(math.log10(value) / 5.0 * 100.0 *
-                      conf.ambient_light_factor)
+    if value < 10:
+        percent = int(value)
+    elif value > 0:
+        # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
+        # percent = min(int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) /
+        #                  10 * 10), 100)
+        percent = min(int(math.log10(value) / 5.0 * 100.0 *
+                      conf.ambient_light_factor), 100)
     else:
         percent = 0
-    if percent < conf.screen_backlight_min:
-        percent = conf.screen_backlight_min
-    elif percent > 100:
-        percent = 100
     LOG.debug("Get ambient light (normalized): %s" % percent)
     return percent
 
@@ -125,6 +124,8 @@ def get_screen_brightness(conf):
 
 
 def set_screen_brightness(conf, value):
+    if value < conf.screen_backlight_min:
+        value = conf.screen_backlight_min
     raw_value = int(conf.screen_brightness_max * value / 100)
     LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
     try:
@@ -150,9 +151,9 @@ def get_keyboard_brightness(conf):
 def set_keyboard_brightness(conf, percent):
     # NOTE(sileht): we currently support only the asus one
     # so we assume value 0 to 3 are the correct range
-    if percent < 7: value = 3
-    elif percent < 14: value = 2
-    elif percent < 21: value = 1
+    if percent == 0: value = 3
+    elif percent < 5: value = 2
+    elif percent < 10: value = 1
     else: value = 0
     LOG.debug("Set keyboard backlight to %s", value)
     try:
@@ -226,7 +227,7 @@ def main():
                         type=float,
                         help="Ambient Light Sensor percentage factor")
     parser.add_argument("--ambient-light-delta-update", "-u",
-                        default=5,
+                        default=3,
                         type=int,
                         help=("Minimun Ambient Light Sensor percentage delta "
                               "before really change the brightness"))
@@ -252,9 +253,9 @@ def main():
     conf.screen_brightness_max = get_screen_brightness_max(conf)
 
     enable_ambient_light(conf)
-    last_ambient_light = 0
-    last_screen_brightness = get_screen_brightness(conf)
-    last_keyboard_brightness = get_keyboard_brightness(conf)
+    last_ambient_light = 61
+    last_screen_brightness = -1
+    last_keyboard_brightness = -1
     while True:
         try:
             screen_brightness = get_screen_brightness(conf)
