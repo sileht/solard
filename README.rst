@@ -11,10 +11,6 @@ Many thanks to `danieleds <https://github.com/danieleds/Asus-Zenbook-Ambient-Lig
 and `Perlover <https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller>`_. They have done all the
 hard work, I have just rewritten a python version, that doesn't need to be compiled.
 
-This version also don't need to run as root if xbacklight is installed.
-
-Tested on my Asus Zenbook UX303UA
-
 Pull request are welcome.
 
 * Free software: Apache license
@@ -58,12 +54,13 @@ To expose them two methods:
 "sudo update-grub" and then reboot. This will disable the Fn+f5 and fn+f6 keys
 
 * Or you can rebuild your kernel with this workaround: https://lkml.org/lkml/2014/2/11/1032
+  and all Fn keys should works.
 
 /sys permissions with udev
 --------------------------
 
-To allow non-root user to control als an keyboard backlight without root
-priviledge. You can add the following /etc/udev/rules.d/99-als.conf::
+To allow non-root user to control als, screen and keyboard backlight without root
+priviledge. You can add the following to /etc/udev/rules.d/99-als.conf::
 
     KERNEL=="asus::kbd_backlight", SUBSYSTEM=="leds", RUN+="/bin/chmod 0666 /sys/class/leds/asus::kbd_backlight/brightness"
     KERNEL=="ACPI0008:00", SUBSYSTEM=="acpi", DRIVER=="als", RUN+="/bin/chmod 0666 /sys/devices/platform/ACPI0008:00/firmware_node/ali /sys/devices/platform/ACPI0008:00/firmware_node/enable"
@@ -74,9 +71,33 @@ And then reload udev rules::
     udevadm control --reload-rules
     udevadm trigger
 
-Run it as non-root
-------------------
+Run it
+------
 
-   apt-get install -y xbacklight
    ./acpi_als_daemon/acpi_als_daemon.py -v
 
+
+Install it (optional)
+---------------------
+
+    pip install .
+
+
+My personnal setup
+------------------
+
+Tested on an Asus UX303UA, with:
+* debian 9 (stretch)
+* vanilla kernel 4.7 and the workaround patch
+* the danieleds/als kernel module (the acpi_als one doesn't always enable the sensor on startup)
+* the udev rules
+
+My desktop uses i3 and mate-desktop. All FN keys works.
+
+My i3 config contains::
+
+    bindcode 248 exec "bash -c 'pkill acpi-als-daemon;acpi-als-daemon --stop-on-outside-change;'"
+    exec_always "bash -c 'pkill acpi-als-daemon;acpi-als-daemon --stop-on-outside-change;'"
+
+This bind the Fn+a (or Fn+q) key to this tool and start this tool on i3
+startup.
