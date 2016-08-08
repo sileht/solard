@@ -70,12 +70,22 @@ def enable_ambient_light(conf):
         return
     LOG.debug("Enable als ambient light")
     path = os.path.join(als_syspath, "enable") % "als"
-    write_sys_value(path, "1")
+    try:
+        write_sys_value(path, "1")
+    except IOError:
+        LOG.error("Fail to enable ambient light sensor, "
+                  "are udev rules configured correctly ?")
+
 
 
 def get_ambient_light(conf):
     path = als_input_syspath_map[conf.ambient_light_sensor]
-    value = int(read_sys_value(path))
+    try:
+        value = int(read_sys_value(path))
+    except IOError:
+        LOG.error("Fail to read ambient light sensor value, "
+                  "are udev rules configured correctly ?")
+        return 100
     LOG.trace("Get ambient light (raw): %s)" % value)
 
     # This mapping have been done for Asus Zenbook UX303UA, but according
@@ -110,9 +120,14 @@ def set_screen_backlight(conf, value):
     if conf.screen_backlight_method == "xbacklight":
         subprocess.check_call("xbacklight -set %d" % value, shell=True)
     else:
-        write_sys_value(os.path.join(screen_backlight_syspath,
-                                     conf.screen_backlight, "brightness"),
-                        "%d" % raw_value)
+        try:
+            write_sys_value(os.path.join(screen_backlight_syspath,
+                                         conf.screen_backlight, "brightness"),
+                            "%d" % raw_value)
+        except IOError:
+            LOG.error("Fail to set screen brightness, "
+                      "are udev rules configured correctly ? "
+                      "or xbacklight installed ?")
 
 
 def set_keyboard_backlight(conf, percent):
@@ -123,8 +138,12 @@ def set_keyboard_backlight(conf, percent):
     elif percent < 21: value = 1
     else: value = 0
     LOG.debug("Set keyboard backlight to %s", value)
-    write_sys_value(keyboard_backlight_syspath % conf.keyboard_backlight,
-                    "%s" % value)
+    try:
+        write_sys_value(keyboard_backlight_syspath % conf.keyboard_backlight,
+                        "%s" % value)
+    except IOError:
+        LOG.error("Fail to set keyboard backlight, "
+                  "are udev rules configured correctly ?")
 
 
 def main():

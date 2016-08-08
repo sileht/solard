@@ -59,14 +59,23 @@ To expose them two methods:
 
 * Or you can rebuild your kernel with this workaround: https://lkml.org/lkml/2014/2/11/1032
 
+/sys permissions with udev
+--------------------------
+
+To allow non-root user to control als an keyboard backlight without root
+priviledge. You can add the following /etc/udev/rules.d/99-als.conf::
+
+    KERNEL=="asus::kbd_backlight", SUBSYSTEM=="leds", RUN+="/bin/chmod 0666 /sys/class/leds/asus::kbd_backlight/brightness"
+    KERNEL=="ACPI0008:00", SUBSYSTEM=="acpi", DRIVER=="als", RUN+="/bin/chmod 0666 /sys/devices/platform/ACPI0008:00/firmware_node/ali /sys/devices/platform/ACPI0008:00/firmware_node/enable"
+
+And then reload udev rules::
+
+    udevadm control --reload-rules
+    udevadm trigger
+
 Run it as non-root
 ------------------
 
    apt-get install -y xbacklight
    ./acpi_als_daemon/acpi_als_daemon.py -v
 
-
-py-acpi-call installation with pip
-----------------------------------
-
-    coming soon
