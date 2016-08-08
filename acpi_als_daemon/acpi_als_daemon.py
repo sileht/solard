@@ -17,7 +17,6 @@ import logging
 import math
 import os
 import time
-import subprocess
 import sys
 
 TRACE = 5
@@ -106,7 +105,7 @@ def get_ambient_light(conf):
     return percent
 
 
-def get_screen_backlight_max(conf):
+def get_screen_brightness_max(conf):
     value = int(read_sys_value(
         os.path.join(screen_backlight_syspath, conf.screen_backlight,
                      "max_brightness")))
@@ -114,18 +113,19 @@ def get_screen_backlight_max(conf):
     return value
 
 
-def get_screen_backlight(conf):
+def get_screen_brightness(conf):
     try:
         value = float(read_sys_value(os.path.join(
             screen_backlight_syspath, conf.screen_backlight, "brightness")))
     except IOError:
         LOG.error("Fail to get screen brightness, "
                   "are udev rules configured correctly ? ")
-    LOG.debug("Current brightness: %s" % value)
+    LOG.debug("Current screen backlight: %s" % value)
     return value
 
-def set_screen_backlight(conf, value):
-    raw_value = int(conf.screen_backlight_max * value / 100)
+
+def set_screen_brightness(conf, value):
+    raw_value = int(conf.screen_brightness_max * value / 100)
     LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
     try:
         write_sys_value(os.path.join(screen_backlight_syspath,
@@ -136,7 +136,18 @@ def set_screen_backlight(conf, value):
                   "are udev rules configured correctly ? ")
 
 
-def set_keyboard_backlight(conf, percent):
+def get_keyboard_brightness(conf):
+    try:
+        value = float(read_sys_value(
+            keyboard_backlight_syspath % conf.keyboard_backlight))
+    except IOError:
+        LOG.error("Fail to set keyboard backlight, "
+                  "are udev rules configured correctly ?")
+    LOG.debug("Current keyboard backlight: %s" % value)
+    return value
+
+
+def set_keyboard_brightness(conf, percent):
     # NOTE(sileht): we currently support only the asus one
     # so we assume value 0 to 3 are the correct range
     if percent < 7: value = 3
@@ -238,20 +249,24 @@ def main():
 
 
     # Set additionnal static configuration
-    conf.screen_backlight_max = get_screen_backlight_max(conf)
+    conf.screen_brightness_max = get_screen_brightness_max(conf)
 
     enable_ambient_light(conf)
     last_ambient_light = 0
-    last_brightness = get_screen_backlight(conf)
+    last_screen_brightness = get_screen_brightness(conf)
+    last_keyboard_brightness = get_keyboard_brightness(conf)
     while True:
         try:
-            brightness = get_screen_backlight(conf)
-            if conf.stop_on_outside_change and brightness != last_brightness:
+            screen_brightness = get_screen_brightness(conf)
+            keyboard_brightness = get_keyboard_brightness(conf)
+            changed_outside = (screen_brightness != last_screen_brightness or
+                               keyboard_brightness != last_keyboard_brightness)
+            if conf.stop_on_outside_change and changed_outside:
                 LOG.info("Brightness changed outside, exiting")
                 sys.exit(0)
 
             if lid_is_closed():
-                set_keyboard_backlight(conf, 0)
+                set_keyboard_brightness(conf, 0)
             else:
                 ambient_light = get_ambient_light(conf)
                 changed_enough = (abs(ambient_light - last_ambient_light) >
@@ -259,10 +274,11 @@ def main():
                 if changed_enough:
                     LOG.info("Change brightness from %d%% to %d%%" %
                              (last_ambient_light, ambient_light))
-                    set_keyboard_backlight(conf, ambient_light)
-                    set_screen_backlight(conf, ambient_light)
+                    set_keyboard_brightness(conf, ambient_light)
+                    set_screen_brightness(conf, ambient_light)
                     last_ambient_light = ambient_light
-                    last_brightness = get_screen_backlight(conf)
+                    last_screen_brightness = get_screen_brightness(conf)
+                    last_keyboard_brightness = get_keyboard_brightness(conf)
         except Exception:
             LOG.exception("Something wrong append, retrying later.")
 
