@@ -101,3 +101,7 @@ My i3 config contains::
 
 This bind the Fn+a (or Fn+q) key to this tool and start this tool on i3
 startup.
+
+Using --stop-on-outside-change allows to stop the automatic brightness
+configuration with the keyboard or the screen brightness keys are used
+(Fn+f3 -> Fn+f4).
