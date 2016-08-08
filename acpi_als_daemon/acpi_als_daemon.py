@@ -17,6 +17,7 @@ import logging
 import math
 import os
 import time
+import subprocess
 import sys
 
 TRACE = 5
@@ -106,9 +107,12 @@ def get_screen_backlight_max(conf):
 def set_screen_backlight(conf, value):
     raw_value = int(conf.screen_backlight_max * value / 100)
     LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
-    write_sys_value(os.path.join(screen_backlight_syspath,
-                                 conf.screen_backlight, "brightness"),
-                    "%s" % raw_value)
+    if conf.screen_backlight_method == "xbacklight":
+        subprocess.check_call("xbacklight -set %d" % value, shell=True)
+    else:
+        write_sys_value(os.path.join(screen_backlight_syspath,
+                                     conf.screen_backlight, "brightness"),
+                        "%d" % raw_value)
 
 
 def set_keyboard_backlight(conf, percent):
@@ -167,6 +171,11 @@ def main():
                         default=10,
                         type=int,
                         help="Minimal percent of allowed brightness")
+    parser.add_argument("--screen-backlight-method",
+                        default="xbacklight",
+                        choices=["xbacklight", "kernel-module"],
+                        help=("Method to set brightness "
+                              "xbacklight/kernel-module[need-root])"))
     parser.add_argument("--screen-backlight", "-s",
                         default=available_screen_backlight_modules[0],
                         choices=available_screen_backlight_modules,
