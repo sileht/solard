@@ -166,7 +166,7 @@ def main():
     parser.add_argument("--screen-backlight-min", "-m",
                         default=10,
                         type=int,
-                        help="Minimal percent of brightness")
+                        help="Minimal percent of allowed brightness")
     parser.add_argument("--screen-backlight", "-s",
                         default=available_screen_backlight_modules[0],
                         choices=available_screen_backlight_modules,
@@ -183,6 +183,11 @@ def main():
                         default=1.5,
                         type=float,
                         help="Ambient Light Sensor percentage factor")
+    parser.add_argument("--ambient-light-delta-update", "-u",
+                        default=5,
+                        type=int,
+                        help=("Minimun Ambient Light Sensor percentage delta before
+                              "really change the brightness")
 
     conf = parser.parse_args()
 
@@ -206,14 +211,14 @@ def main():
 
     enable_ambient_light(conf)
     last_ambient_light = 0
-    delta_change = 5
     while True:
         try:
             if lid_is_closed():
                 set_keyboard_backlight(conf, 0)
             else:
                 ambient_light = get_ambient_light(conf)
-                changed_enough = abs(ambient_light - last_ambient_light) > delta_change
+                changed_enough = (abs(ambient_light - last_ambient_light) >
+                                  conf.ambient_light_delta_update)
                 if changed_enough:
                     LOG.info("Change brightness from %d%% to %d%%" %
                              (last_ambient_light, ambient_light))
