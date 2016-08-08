@@ -186,8 +186,8 @@ def main():
     parser.add_argument("--ambient-light-delta-update", "-u",
                         default=5,
                         type=int,
-                        help=("Minimun Ambient Light Sensor percentage delta before
-                              "really change the brightness")
+                        help=("Minimun Ambient Light Sensor percentage delta "
+                              "before really change the brightness"))
 
     conf = parser.parse_args()
 
