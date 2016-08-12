@@ -13,12 +13,12 @@
 # limitations under the License.
 
 import argparse
+from concurrent import futures
 import logging
 import math
 import os
 import time
 import sys
-from concurrent import futures
 
 TRACE = 5
 logging.addLevelName(TRACE, 'TRACE')
@@ -57,24 +57,29 @@ class AcpiAlsDaemon(object):
         # Set additionnal static configuration
         self.conf.screen_brightness_max = self.get_screen_brightness_max()
 
-        self.last_ambient_light = -1
-        self.last_screen_brightness = -1
-        self.last_keyboard_brightness = -1
+        self.force_update = False
+        # Calculate previous from the screen brightness
+        self.last_screen_brightness = self.get_screen_brightness()
+        self.last_ambient_light = (self.last_screen_brightness * 100 /
+                                   self.conf.screen_brightness_max)
+        if self.last_ambient_light < self.conf.screen_brightness_min:
+            self.last_ambient_light = 0
+        self.last_keyboard_brightness = (3 if self.last_ambient_light < 10
+                                         else 0)
 
     def loop(self):
-        self.last_screen_brightness = self.get_screen_brightness()
-        self.last_keyboard_brightness = self.get_keyboard_brightness()
-
         while True:
             try:
                 if self.lid_is_closed():
                     self.set_keyboard_brightness(0)
+                elif self.force_update:
+                    self.update_all_backlights()
+                    self.force_update = False
                 else:
                     self.raise_if_changed_outside()
                     changed_enough = ((abs(self.get_ambient_light() - self.last_ambient_light) >
                                        self.conf.ambient_light_delta_update))
-                    first_run = self.last_ambient_light == -1
-                    if changed_enough or first_run:
+                    if changed_enough:
                         self.update_all_backlights()
             except BacklightsChangedOutside:
                 if self.conf.stop_on_outside_change:
@@ -82,7 +87,7 @@ class AcpiAlsDaemon(object):
                     sys.exit(0)
                 else:
                     LOG.info("Brightness changed outside, restarting")
-                    self.last_ambient_light = -1
+                    self.force_update = True
             except Exception:
                 LOG.exception("Something wrong append, retrying later.")
 
@@ -188,7 +193,7 @@ class AcpiAlsDaemon(object):
 
     def get_screen_brightness(self):
         try:
-            value = float(self.read_sys_value(os.path.join(
+            value = int(self.read_sys_value(os.path.join(
                 SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight, "brightness")))
         except IOError:
             LOG.error("Fail to get screen brightness, "
@@ -341,7 +346,7 @@ def main():
     parser.add_argument("--screen-brightness-time", "-t",
                         default=0.2,
                         type=float,
-                        help="Duration of brightness change in seconds")
+                        help="Duration of screen brightness change in seconds")
     parser.add_argument("--keyboard-brightness-step-duration",
                         default=0.005,
                         type=float,
