@@ -18,6 +18,7 @@ import math
 import os
 import time
 import sys
+from concurrent import futures
 
 TRACE = 5
 logging.addLevelName(TRACE, 'TRACE')
@@ -80,6 +81,7 @@ class AcpiCallDaemon(object):
                     LOG.info("Brightness changed outside, exiting")
                     sys.exit(0)
                 else:
+                    LOG.info("Brightness changed outside, restarting")
                     self.last_ambient_light = -1
             except Exception:
                 LOG.exception("Something wrong append, retrying later.")
@@ -91,10 +93,20 @@ class AcpiCallDaemon(object):
 
     def update_all_backlights(self):
         ambient_light = self.get_ambient_light()
-        LOG.info("Change brightness from %d%% to %d%%" %
+        LOG.info("> Change brightness from %d%% to %d%% start" %
                  (self.last_ambient_light, ambient_light))
-        self.slowly_set_screen_brightness(ambient_light)
-        self.slowly_set_keyboard_brightness(ambient_light)
+        with futures.ThreadPoolExecutor(max_workers=20) as executor:
+            futs = [
+                executor.submit(self.slowly_set_keyboard_brightness,
+                                ambient_light),
+                executor.submit(self.slowly_set_screen_brightness,
+                                ambient_light),
+            ]
+            futures.wait(futs)
+            for fut in futs:
+                fut.result()
+        LOG.info("> Change brightness from %d%% to %d%% finish"  %
+                 (self.last_ambient_light, ambient_light))
         self.last_ambient_light = ambient_light
 
     @staticmethod
@@ -185,12 +197,20 @@ class AcpiCallDaemon(object):
         return value
 
     def raise_if_changed_outside(self):
-        screen_brightness = self.get_screen_brightness()
+        self.raise_if_keyboard_changed_outside()
+        self.raise_if_screen_changed_outside()
+
+    def raise_if_keyboard_changed_outside(self):
         keyboard_brightness = self.get_keyboard_brightness()
-        changed_outside = (screen_brightness != self.last_screen_brightness or
-                           keyboard_brightness != self.last_keyboard_brightness)
+        changed_outside = keyboard_brightness != self.last_keyboard_brightness
         if changed_outside:
             self.last_keyboard_brightness = keyboard_brightness
+            raise BacklightsChangedOutside
+
+    def raise_if_screen_changed_outside(self):
+        screen_brightness = self.get_screen_brightness()
+        changed_outside = screen_brightness != self.last_screen_brightness
+        if changed_outside:
             self.last_screen_brightness = screen_brightness
             raise BacklightsChangedOutside
 
@@ -198,6 +218,7 @@ class AcpiCallDaemon(object):
         if target < self.conf.screen_brightness_min:
             target = self.conf.screen_brightness_min
         raw_target = int(self.conf.screen_brightness_max * target / 100)
+        LOG.debug("Set screen backlight to %d%% (%d%%)" % (target, raw_target))
         screen_brightness = self.get_screen_brightness()
         diff = raw_target - screen_brightness
         if diff == 0:
@@ -223,8 +244,7 @@ class AcpiCallDaemon(object):
         self.set_screen_brightness(raw_target)
 
     def set_screen_brightness(self, value):
-        self.raise_if_changed_outside()
-        LOG.debug("Set screen backlight to %d%%" % value)
+        self.raise_if_screen_changed_outside()
         try:
             self.write_sys_value(os.path.join(
                 SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight, "brightness"
@@ -232,9 +252,10 @@ class AcpiCallDaemon(object):
         except IOError:
             LOG.error("Fail to set screen brightness, "
                     "are udev rules configured correctly ? ")
-        self.last_screen_brightness = self.get_screen_brightness()
+        self.last_screen_brightness = value
 
     def get_keyboard_brightness(self):
+        time.sleep(0.1)
         try:
             value = int(self.read_sys_value(
                 KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight))
@@ -248,20 +269,20 @@ class AcpiCallDaemon(object):
         # NOTE(sileht): we currently support only the asus one
         # so we assume value 0 to 3 are the correct range
         if percent < 10:
-            targets = range(4)
+            targets = range(1, 4)
         else:
-            targets = range(3, -1, -1)
+            targets = range(2, -1, -1)
 
-        if targets[-1] == self.get_keyboard_brightness():
+        if targets[-1] == self.last_keyboard_brightness:
             return
 
+        LOG.debug("Set keyboard backlight to %s", targets[-1])
         for target in targets:
             self.set_keyboard_brightness(target)
             time.sleep(self.conf.keyboard_brightness_step_duration)
 
     def set_keyboard_brightness(self, value):
-        self.raise_if_changed_outside()
-        LOG.debug("Set keyboard backlight to %s", value)
+        self.raise_if_keyboard_changed_outside()
         try:
             self.write_sys_value(KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight,
                                  "%s" % value)
