@@ -194,19 +194,39 @@ class AcpiCallDaemon(object):
             self.last_screen_brightness = screen_brightness
             raise BacklightsChangedOutside
 
-    def slowly_set_screen_brightness(self, value):
-        self.set_screen_brightness(value)
+    def slowly_set_screen_brightness(self, target):
+        if target < self.conf.screen_brightness_min:
+            target = self.conf.screen_brightness_min
+        raw_target = int(self.conf.screen_brightness_max * target / 100)
+        screen_brightness = self.get_screen_brightness()
+        diff = raw_target - screen_brightness
+        step = 1
+        wait = abs(self.conf.screen_brightness_time / diff)
+        # Sleeping less than 5ms doesn't looks good
+        while wait < 0.005:
+            wait *= 2
+            step *= 2
+        if diff < 0:
+            step = -step
+            is_finished = lambda: screen_brightness <= raw_target
+        else:
+            is_finished = lambda: screen_brightness >= raw_target
+
+        LOG.debug("%s -> %s (step:%s, wait: %s)" % (screen_brightness, raw_target,
+                                                    step, wait))
+        while not is_finished():
+            self.set_screen_brightness(screen_brightness)
+            time.sleep(wait)
+            screen_brightness += step
+        self.set_screen_brightness(raw_target)
 
     def set_screen_brightness(self, value):
         self.raise_if_changed_outside()
-        if value < self.conf.screen_brightness_min:
-            value = self.conf.screen_brightness_min
-        raw_value = int(self.conf.screen_brightness_max * value / 100)
-        LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
+        LOG.debug("Set screen backlight to %d%%" % value)
         try:
             self.write_sys_value(os.path.join(
                 SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight, "brightness"
-            ), "%d" % raw_value)
+            ), "%d" % value)
         except IOError:
             LOG.error("Fail to set screen brightness, "
                     "are udev rules configured correctly ? ")
@@ -286,6 +306,10 @@ def main():
                         default=10,
                         type=int,
                         help="Minimal percent of allowed brightness")
+    parser.add_argument("--screen-brightness-time", "-t",
+                        default=0.2,
+                        type=float,
+                        help="Duration of brightness change in seconds")
     parser.add_argument("--screen-backlight", "-s",
                         default=available_screen_backlight_modules[0],
                         choices=available_screen_backlight_modules,
