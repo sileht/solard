@@ -93,8 +93,8 @@ class AcpiCallDaemon(object):
         ambient_light = self.get_ambient_light()
         LOG.info("Change brightness from %d%% to %d%%" %
                  (self.last_ambient_light, ambient_light))
-        self.set_keyboard_brightness(ambient_light)
         self.slowly_set_screen_brightness(ambient_light)
+        self.slowly_set_keyboard_brightness(ambient_light)
         self.last_ambient_light = ambient_light
 
     @staticmethod
@@ -200,6 +200,8 @@ class AcpiCallDaemon(object):
         raw_target = int(self.conf.screen_brightness_max * target / 100)
         screen_brightness = self.get_screen_brightness()
         diff = raw_target - screen_brightness
+        if diff == 0:
+            return
         step = 1
         wait = abs(self.conf.screen_brightness_time / diff)
         # Sleeping less than 5ms doesn't looks good
@@ -234,7 +236,7 @@ class AcpiCallDaemon(object):
 
     def get_keyboard_brightness(self):
         try:
-            value = float(self.read_sys_value(
+            value = int(self.read_sys_value(
                 KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight))
         except IOError:
             LOG.error("Fail to set keyboard backlight, "
@@ -242,14 +244,23 @@ class AcpiCallDaemon(object):
         LOG.debug("Current keyboard backlight: %s" % value)
         return value
 
-    def set_keyboard_brightness(self, percent):
-        self.raise_if_changed_outside()
+    def slowly_set_keyboard_brightness(self, percent):
         # NOTE(sileht): we currently support only the asus one
         # so we assume value 0 to 3 are the correct range
-        if percent == 0: value = 3
-        elif percent < 5: value = 2
-        elif percent < 10: value = 1
-        else: value = 0
+        if percent < 10:
+            targets = range(4)
+        else:
+            targets = range(3, -1, -1)
+
+        if targets[-1] == self.get_keyboard_brightness():
+            return
+
+        for target in targets:
+            self.set_keyboard_brightness(target)
+            time.sleep(self.conf.keyboard_brightness_step_duration)
+
+    def set_keyboard_brightness(self, value):
+        self.raise_if_changed_outside()
         LOG.debug("Set keyboard backlight to %s", value)
         try:
             self.write_sys_value(KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight,
@@ -257,7 +268,7 @@ class AcpiCallDaemon(object):
         except IOError:
             LOG.error("Fail to set keyboard backlight, "
                     "are udev rules configured correctly ?")
-        self.last_keyboard_brightness = self.get_keyboard_brightness()
+        self.last_keyboard_brightness = value
 
 
 def main():
@@ -310,6 +321,10 @@ def main():
                         default=0.2,
                         type=float,
                         help="Duration of brightness change in seconds")
+    parser.add_argument("--keyboard-brightness-step-duration",
+                        default=0.005,
+                        type=float,
+                        help="Duration between keyboard brightness step")
     parser.add_argument("--screen-backlight", "-s",
                         default=available_screen_backlight_modules[0],
                         choices=available_screen_backlight_modules,
