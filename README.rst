@@ -87,6 +87,7 @@ My personnal setup
 ------------------
 
 Tested on an Asus UX303UA, with:
+
 * debian 9 (stretch)
 * vanilla kernel 4.7 and the workaround patch
 * the danieleds/als kernel module (the acpi_als one doesn't always enable the sensor on startup)
@@ -102,6 +103,6 @@ My i3 config contains::
 This bind the Fn+a (or Fn+q) key to this tool and start this tool on i3
 startup.
 
-Using --stop-on-outside-change allows to stop the automatic brightness
+Using *--stop-on-outside-change* allows to stop the automatic brightness
 configuration with the keyboard or the screen brightness keys are used
 (Fn+f3 -> Fn+f4).
