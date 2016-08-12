@@ -93,7 +93,7 @@ class AcpiAlsDaemon(object):
 
             if self.conf.only_once:
                 break
-            else:
+            elif not self.force_update:
                 time.sleep(3)
 
     def update_all_backlights(self):
