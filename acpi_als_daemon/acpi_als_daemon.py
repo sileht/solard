@@ -51,7 +51,7 @@ class BacklightsChangedOutside(Exception):
     pass
 
 
-class AcpiCallDaemon(object):
+class AcpiAlsDaemon(object):
     def __init__(self, conf):
         self.conf = conf
         # Set additionnal static configuration
@@ -369,7 +369,7 @@ def main():
                               "before really change the brightness"))
 
     conf = parser.parse_args()
-    daemon = AcpiCallDaemon(conf)
+    daemon = AcpiAlsDaemon(conf)
     daemon.setup_logging()
     daemon.enable_ambient_light()
     daemon.loop()
