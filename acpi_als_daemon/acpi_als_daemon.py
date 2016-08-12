@@ -265,6 +265,11 @@ class AcpiAlsDaemon(object):
         self.last_screen_brightness = value
 
     def get_keyboard_brightness(self):
+        if self.conf.keyboard_backlight is None:
+            return 0
+
+        # reading a just written value returns previous value so we sleep a
+        # bit...
         time.sleep(0.1)
         try:
             value = int(self.read_sys_value(
@@ -276,6 +281,8 @@ class AcpiAlsDaemon(object):
         return value
 
     def slowly_set_keyboard_brightness(self, percent):
+        if self.conf.keyboard_backlight is None:
+            return
         # NOTE(sileht): we currently support only the asus one
         # so we assume value 0 to 3 are the correct range
         if percent < 10:
@@ -324,10 +331,6 @@ def main():
         mod for mod in SUPPORTED_KEYBOARD_BACKLIGHT_MODULES
         if os.path.exists(KEYBOARD_BACKLIGHT_SYSPATH % mod)
     ]
-    if not available_keyboard_backlight_modules:
-        LOG.error("No support ambient light sensor found (%s)" %
-                  SUPPORTED_KEYBOARD_BACKLIGHT_MODULES)
-        sys.exit(1)
 
 
     parser = argparse.ArgumentParser(
@@ -365,7 +368,8 @@ def main():
                         choices=available_screen_backlight_modules,
                         help="Screen backlight kernel module")
     parser.add_argument("--keyboard-backlight", "-k",
-                        default=available_keyboard_backlight_modules[0],
+                        default=(available_keyboard_backlight_modules[0] if
+                                 available_keyboard_backlight_modules else 0),
                         choices=available_keyboard_backlight_modules,
                         help="Keyboard backlight kernel module")
     parser.add_argument("--ambient-light-sensor", "-a",
