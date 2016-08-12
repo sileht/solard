@@ -74,7 +74,7 @@ class AcpiAlsDaemon(object):
 
             try:
                 if self.lid_is_closed():
-                    if last_keyboard_brightness != 0:
+                    if self.last_keyboard_brightness != 0:
                         self.set_keyboard_brightness(0)
                 elif self.force_update:
                     self.update_all_backlights()
