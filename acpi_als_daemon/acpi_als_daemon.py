@@ -14,6 +14,7 @@
 
 import argparse
 from concurrent import futures
+from datetime import datetime
 import logging
 import math
 import os
@@ -69,9 +70,12 @@ class AcpiAlsDaemon(object):
 
     def loop(self):
         while True:
+            start = datetime.utcnow()
+
             try:
                 if self.lid_is_closed():
-                    self.set_keyboard_brightness(0)
+                    if last_keyboard_brightness != 0:
+                        self.set_keyboard_brightness(0)
                 elif self.force_update:
                     self.update_all_backlights()
                     self.force_update = False
@@ -94,7 +98,9 @@ class AcpiAlsDaemon(object):
             if self.conf.only_once:
                 break
             elif not self.force_update:
-                time.sleep(3)
+                elapsed = (datetime.utcnow() - start).total_seconds()
+                wait = max(0, self.conf.brightness_update_interval - elapsed)
+                time.sleep(wait)
 
     def update_all_backlights(self):
         ambient_light = self.get_ambient_light()
@@ -337,6 +343,10 @@ def main():
     parser.add_argument('--only-once', action='store_true',
                         help="Set values once and exit.")
 
+    parser.add_argument("--brightness-update-interval", "-i",
+                        default=2.0,
+                        type=float,
+                        help="Interval between brightness update")
     parser.add_argument("--stop-on-outside-change", action='store_true',
                         help="If brightness is changed outside the daemon stop.")
     parser.add_argument("--screen-brightness-min", "-m",
