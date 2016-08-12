@@ -335,7 +335,7 @@ def main():
     parser.add_argument("--stop-on-outside-change", action='store_true',
                         help="If brightness is changed outside the daemon stop.")
     parser.add_argument("--screen-brightness-min", "-m",
-                        default=10,
+                        default=5,
                         type=int,
                         help="Minimal percent of allowed brightness")
     parser.add_argument("--screen-brightness-time", "-t",
