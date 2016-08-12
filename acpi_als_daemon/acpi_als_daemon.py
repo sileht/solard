@@ -58,15 +58,14 @@ class AcpiAlsDaemon(object):
         # Set additionnal static configuration
         self.conf.screen_brightness_max = self.get_screen_brightness_max()
 
-        self.force_update = False
+        self.force_update = True
         # Calculate previous values from the screen brightness
         self.last_screen_brightness = self.get_screen_brightness()
+        self.last_keyboard_brightness = self.get_keyboard_brightness()
         self.last_ambient_light = (self.last_screen_brightness * 100 /
                                    self.conf.screen_brightness_max)
         if self.last_ambient_light < self.conf.screen_brightness_min:
             self.last_ambient_light = 0
-        self.last_keyboard_brightness = (3 if self.last_ambient_light < 10
-                                         else 0)
 
     def loop(self):
         while True:
