@@ -29,166 +29,220 @@ class LoggerAdapter(logging.LoggerAdapter):
 
 LOG = LoggerAdapter(logging.getLogger("acpi-als-daemon"), {})
 
-lid_syspath = "/proc/acpi/button/lid/LID/state"
+LID_SYSPATH = "/proc/acpi/button/lid/LID/state"
 
-screen_backlight_syspath = "/sys/class/backlight/"
-supported_screen_backlight_modules = ["acpi_video0", "intel_backlight"]
+SCREEN_BACKLIGHT_SYSPATH = "/sys/class/backlight/"
+SUPPORTED_SCREEN_BACKLIGHT_MODULES = ["acpi_video0", "intel_backlight"]
 
-als_syspath = "/sys/bus/acpi/drivers/%s/ACPI0008:00"
-supported_als_modules = ["acpi_als", "als"]
+ALS_SYSPATH = "/sys/bus/acpi/drivers/%s/ACPI0008:00"
+SUPPORTED_ALS_MODULES = ["acpi_als", "als"]
 
-als_input_syspath_map = {
-    "acpi_als": os.path.join(als_syspath, "iio:device0/in_illuminance_input") % "acpi_als",
-    "als": os.path.join(als_syspath, "ali") % "als"
+ALS_INPUT_SYSPATH_MAP = {
+    "acpi_als": os.path.join(ALS_SYSPATH, "iio:device0/in_illuminance_input") % "acpi_als",
+    "als": os.path.join(ALS_SYSPATH, "ali") % "als"
 }
 
-keyboard_backlight_syspath = "/sys/class/leds/%s/brightness"
-supported_keyboard_backlight_modules = ["asus::kbd_backlight"]
+KEYBOARD_BACKLIGHT_SYSPATH = "/sys/class/leds/%s/brightness"
+SUPPORTED_KEYBOARD_BACKLIGHT_MODULES = ["asus::kbd_backlight"]
 
 
-def read_sys_value(path):
-    LOG.trace("cat %s" % path)
-    with open(path) as f:
-        return f.read().strip()
+class AcpiCallDaemon(object):
+    def __init__(self, conf):
+        self.conf = conf
+        # Set additionnal static configuration
+        self.conf.screen_brightness_max = self.get_screen_brightness_max()
 
+        self.last_ambient_light = -1
+        self.last_screen_brightness = -1
+        self.last_keyboard_brightness = -1
 
-def write_sys_value(path, value):
-    LOG.trace("echo %s > %s" % (value, path))
-    with open(path, 'w') as f:
-        f.write(value)
+    def loop(self):
+        while True:
+            try:
+                screen_brightness = self.get_screen_brightness()
+                keyboard_brightness = self.get_keyboard_brightness()
+                changed_outside = (screen_brightness != self.last_screen_brightness or
+                                   keyboard_brightness != self.last_keyboard_brightness)
+                if (self.conf.stop_on_outside_change
+                        and changed_outside
+                        and self.last_ambient_light != -1):
+                    LOG.info("Brightness changed outside, exiting")
+                    sys.exit(0)
 
+                if self.lid_is_closed():
+                    self.set_keyboard_brightness(0)
+                else:
+                    ambient_light = self.get_ambient_light()
+                    changed_enough = ((abs(ambient_light - self.last_ambient_light) >
+                                       self.conf.ambient_light_delta_update)
+                                      or changed_outside)
+                    if changed_enough:
+                        LOG.info("Change brightness from %d%% to %d%%" %
+                                (self.last_ambient_light, ambient_light))
+                        self.set_keyboard_brightness(ambient_light)
+                        self.set_screen_brightness(ambient_light)
+                        self.last_ambient_light = ambient_light
+                        self.last_screen_brightness = self.get_screen_brightness()
+                        self.last_keyboard_brightness = self.get_keyboard_brightness()
+            except Exception:
+                LOG.exception("Something wrong append, retrying later.")
 
-def lid_is_closed():
-    value = read_sys_value(lid_syspath)
-    LOG.trace("LID is %s" % value)
-    return value == "closed"
+            if self.conf.only_once:
+                break
+            else:
+                time.sleep(3)
 
+    @staticmethod
+    def read_sys_value(path):
+        LOG.trace("cat %s" % path)
+        with open(path) as f:
+            return f.read().strip()
 
-def enable_ambient_light(conf):
-    if conf.ambient_light_sensor != "als":
-        return
-    LOG.debug("Enable als ambient light")
-    path = os.path.join(als_syspath, "enable") % "als"
-    try:
-        write_sys_value(path, "1")
-    except IOError:
-        LOG.error("Fail to enable ambient light sensor, "
-                  "are udev rules configured correctly ?")
+    @staticmethod
+    def write_sys_value(path, value):
+        LOG.trace("echo %s > %s" % (value, path))
+        with open(path, 'w') as f:
+            f.write(value)
 
+    @classmethod
+    def lid_is_closed(cls):
+        value = cls.read_sys_value(LID_SYSPATH)
+        LOG.trace("LID is %s" % value)
+        return value == "closed"
 
+    def setup_logging(self):
+        if self.conf.log:
+            logging.basicConfig(filename=self.conf.log, level=logging.DEBUG)
+            LOG.debug("Log level set to DEBUG")
+        else:
+            if self.conf.debug:
+                level = TRACE
+            elif self.conf.verbose:
+                level = logging.DEBUG
+            elif self.conf.quiet:
+                level = logging.ERROR
+            else:
+                level = logging.INFO
+            logging.basicConfig(level=level)
 
-def get_ambient_light(conf):
-    path = als_input_syspath_map[conf.ambient_light_sensor]
-    try:
-        value = int(read_sys_value(path))
-    except IOError:
-        LOG.error("Fail to read ambient light sensor value, "
-                  "are udev rules configured correctly ?")
-        return 100
-    LOG.trace("Get ambient light (raw): %s)" % value)
+    def enable_ambient_light(self):
+        if self.conf.ambient_light_sensor != "als":
+            return
+        LOG.debug("Enable als ambient light")
+        path = os.path.join(ALS_SYSPATH, "enable") % "als"
+        try:
+            self.write_sys_value(path, "1")
+        except IOError:
+            LOG.error("Fail to enable ambient light sensor, "
+                    "are udev rules configured correctly ?")
 
-    # This mapping have been done for Asus Zenbook UX303UA, but according
-    # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
-    # previous/other Zenbook can report only 5 values
-    if value < 10:
-        percent = int(value)
-    elif value > 0:
-        # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
-        # percent = min(int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) /
-        #                  10 * 10), 100)
-        percent = min(int(math.log10(value) / 5.0 * 100.0 *
-                      conf.ambient_light_factor), 100)
-    else:
-        percent = 0
-    LOG.debug("Get ambient light (normalized): %s" % percent)
-    return percent
+    def get_ambient_light(self):
+        path = ALS_INPUT_SYSPATH_MAP[self.conf.ambient_light_sensor]
+        try:
+            value = int(self.read_sys_value(path))
+        except IOError:
+            LOG.error("Fail to read ambient light sensor value, "
+                    "are udev rules configured correctly ?")
+            return 100
+        LOG.trace("Get ambient light (raw): %s)" % value)
 
+        # This mapping have been done for Asus Zenbook UX303UA, but according
+        # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
+        # previous/other Zenbook can report only 5 values
+        if value < 10:
+            percent = int(value)
+        elif value > 0:
+            # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
+            # percent = min(int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) /
+            #                  10 * 10), 100)
+            percent = min(int(math.log10(value) / 5.0 * 100.0 *
+                              self.conf.ambient_light_factor), 100)
+        else:
+            percent = 0
+        LOG.debug("Get ambient light (normalized): %s" % percent)
+        return percent
 
-def get_screen_brightness_max(conf):
-    value = int(read_sys_value(
-        os.path.join(screen_backlight_syspath, conf.screen_backlight,
-                     "max_brightness")))
-    LOG.debug("Get screen backlight maximum: %d", value)
-    return value
+    def get_screen_brightness_max(self):
+        value = int(self.read_sys_value(
+            os.path.join(SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight,
+                         "max_brightness")))
+        LOG.debug("Get screen backlight maximum: %d", value)
+        return value
 
+    def get_screen_brightness(self):
+        try:
+            value = float(self.read_sys_value(os.path.join(
+                SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight, "brightness")))
+        except IOError:
+            LOG.error("Fail to get screen brightness, "
+                    "are udev rules configured correctly ? ")
+        LOG.debug("Current screen backlight: %s" % value)
+        return value
 
-def get_screen_brightness(conf):
-    try:
-        value = float(read_sys_value(os.path.join(
-            screen_backlight_syspath, conf.screen_backlight, "brightness")))
-    except IOError:
-        LOG.error("Fail to get screen brightness, "
-                  "are udev rules configured correctly ? ")
-    LOG.debug("Current screen backlight: %s" % value)
-    return value
+    def set_screen_brightness(self, value):
+        if value < self.conf.screen_brightness_min:
+            value = self.conf.screen_brightness_min
+        raw_value = int(self.conf.screen_brightness_max * value / 100)
+        LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
+        try:
+            self.write_sys_value(os.path.join(
+                SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight, "brightness"
+            ), "%d" % raw_value)
+        except IOError:
+            LOG.error("Fail to set screen brightness, "
+                    "are udev rules configured correctly ? ")
 
+    def get_keyboard_brightness(self):
+        try:
+            value = float(self.read_sys_value(
+                KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight))
+        except IOError:
+            LOG.error("Fail to set keyboard backlight, "
+                    "are udev rules configured correctly ?")
+        LOG.debug("Current keyboard backlight: %s" % value)
+        return value
 
-def set_screen_brightness(conf, value):
-    if value < conf.screen_backlight_min:
-        value = conf.screen_backlight_min
-    raw_value = int(conf.screen_brightness_max * value / 100)
-    LOG.debug("Set screen backlight to %d%% (%d)" % (value, raw_value))
-    try:
-        write_sys_value(os.path.join(screen_backlight_syspath,
-                                        conf.screen_backlight, "brightness"),
-                        "%d" % raw_value)
-    except IOError:
-        LOG.error("Fail to set screen brightness, "
-                  "are udev rules configured correctly ? ")
-
-
-def get_keyboard_brightness(conf):
-    try:
-        value = float(read_sys_value(
-            keyboard_backlight_syspath % conf.keyboard_backlight))
-    except IOError:
-        LOG.error("Fail to set keyboard backlight, "
-                  "are udev rules configured correctly ?")
-    LOG.debug("Current keyboard backlight: %s" % value)
-    return value
-
-
-def set_keyboard_brightness(conf, percent):
-    # NOTE(sileht): we currently support only the asus one
-    # so we assume value 0 to 3 are the correct range
-    if percent == 0: value = 3
-    elif percent < 5: value = 2
-    elif percent < 10: value = 1
-    else: value = 0
-    LOG.debug("Set keyboard backlight to %s", value)
-    try:
-        write_sys_value(keyboard_backlight_syspath % conf.keyboard_backlight,
-                        "%s" % value)
-    except IOError:
-        LOG.error("Fail to set keyboard backlight, "
-                  "are udev rules configured correctly ?")
+    def set_keyboard_brightness(self, percent):
+        # NOTE(sileht): we currently support only the asus one
+        # so we assume value 0 to 3 are the correct range
+        if percent == 0: value = 3
+        elif percent < 5: value = 2
+        elif percent < 10: value = 1
+        else: value = 0
+        LOG.debug("Set keyboard backlight to %s", value)
+        try:
+            self.write_sys_value(KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight,
+                                 "%s" % value)
+        except IOError:
+            LOG.error("Fail to set keyboard backlight, "
+                    "are udev rules configured correctly ?")
 
 
 def main():
     available_screen_backlight_modules = [
-        mod for mod in supported_screen_backlight_modules
-        if os.path.exists(os.path.join(screen_backlight_syspath, mod))]
+        mod for mod in SUPPORTED_SCREEN_BACKLIGHT_MODULES
+        if os.path.exists(os.path.join(SCREEN_BACKLIGHT_SYSPATH, mod))]
     if not available_screen_backlight_modules:
         LOG.error("No supported backlight found (%s)" %
-                  supported_screen_backlight_modules)
+                  SUPPORTED_SCREEN_BACKLIGHT_MODULES)
         sys.exit(1)
 
     available_als_modules = [
-        mod for mod in supported_als_modules
-        if os.path.exists(als_syspath % mod)
+        mod for mod in SUPPORTED_ALS_MODULES
+        if os.path.exists(ALS_SYSPATH % mod)
     ]
     if not available_als_modules:
         LOG.error("No support ambient light sensor found (%s)" %
-                  supported_als_modules)
+                  SUPPORTED_ALS_MODULES)
         sys.exit(1)
 
     available_keyboard_backlight_modules = [
-        mod for mod in supported_keyboard_backlight_modules
-        if os.path.exists(keyboard_backlight_syspath % mod)
+        mod for mod in SUPPORTED_KEYBOARD_BACKLIGHT_MODULES
+        if os.path.exists(KEYBOARD_BACKLIGHT_SYSPATH % mod)
     ]
     if not available_keyboard_backlight_modules:
         LOG.error("No support ambient light sensor found (%s)" %
-                  supported_keyboard_backlight_modules)
+                  SUPPORTED_KEYBOARD_BACKLIGHT_MODULES)
         sys.exit(1)
 
 
@@ -206,7 +260,7 @@ def main():
 
     parser.add_argument("--stop-on-outside-change", action='store_true',
                         help="If brightness is changed outside the daemon stop.")
-    parser.add_argument("--screen-backlight-min", "-m",
+    parser.add_argument("--screen-brightness-min", "-m",
                         default=10,
                         type=int,
                         help="Minimal percent of allowed brightness")
@@ -233,63 +287,10 @@ def main():
                               "before really change the brightness"))
 
     conf = parser.parse_args()
-
-    if conf.log:
-        logging.basicConfig(filename=conf.log, level=logging.DEBUG)
-        LOG.debug("Log level set to DEBUG")
-    else:
-        if conf.debug:
-            level = TRACE
-        elif conf.verbose:
-            level = logging.DEBUG
-        elif conf.quiet:
-            level = logging.ERROR
-        else:
-            level = logging.INFO
-        logging.basicConfig(level=level)
-
-
-    # Set additionnal static configuration
-    conf.screen_brightness_max = get_screen_brightness_max(conf)
-
-    enable_ambient_light(conf)
-    last_ambient_light = -1
-    last_screen_brightness = -1
-    last_keyboard_brightness = -1
-    while True:
-        try:
-            screen_brightness = get_screen_brightness(conf)
-            keyboard_brightness = get_keyboard_brightness(conf)
-            changed_outside = (screen_brightness != last_screen_brightness or
-                               keyboard_brightness != last_keyboard_brightness)
-            if (conf.stop_on_outside_change
-                    and changed_outside
-                    and last_ambient_light != -1):
-                LOG.info("Brightness changed outside, exiting")
-                sys.exit(0)
-
-            if lid_is_closed():
-                set_keyboard_brightness(conf, 0)
-            else:
-                ambient_light = get_ambient_light(conf)
-                changed_enough = ((abs(ambient_light - last_ambient_light) >
-                                  conf.ambient_light_delta_update)
-                                  or changed_outside)
-                if changed_enough:
-                    LOG.info("Change brightness from %d%% to %d%%" %
-                             (last_ambient_light, ambient_light))
-                    set_keyboard_brightness(conf, ambient_light)
-                    set_screen_brightness(conf, ambient_light)
-                    last_ambient_light = ambient_light
-                    last_screen_brightness = get_screen_brightness(conf)
-                    last_keyboard_brightness = get_keyboard_brightness(conf)
-        except Exception:
-            LOG.exception("Something wrong append, retrying later.")
-
-        if conf.only_once:
-            break
-        else:
-            time.sleep(3)
+    daemon = AcpiCallDaemon(conf)
+    daemon.setup_logging()
+    daemon.enable_ambient_light()
+    daemon.loop()
 
 
 if __name__ == '__main__':
