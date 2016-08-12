@@ -249,6 +249,8 @@ class AcpiAlsDaemon(object):
 
         LOG.debug("%s -> %s (step:%s, interval: %s)" % (screen_brightness, raw_target,
                                                         step, interval))
+
+        screen_brightness += step
         while not is_finished():
             self.set_screen_brightness(screen_brightness)
             time.sleep(interval)
