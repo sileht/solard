@@ -230,26 +230,28 @@ class AcpiAlsDaemon(object):
         raw_target = int(self.conf.screen_brightness_max * target / 100)
         LOG.debug("Set screen backlight to %d%% (%d%%)" % (target, raw_target))
         screen_brightness = self.get_screen_brightness()
+
         diff = raw_target - screen_brightness
         if diff == 0:
             return
-        step = 1
-        wait = abs(self.conf.screen_brightness_time / diff)
-        # Sleeping less than 5ms doesn't looks good
-        while wait < 0.005:
-            wait *= 2
-            step *= 2
-        if diff < 0:
-            step = -step
-            is_finished = lambda: screen_brightness <= raw_target
-        else:
+        elif diff > 0:
+            step = 1
             is_finished = lambda: screen_brightness >= raw_target
+        else:
+            step = -1
+            is_finished = lambda: screen_brightness <= raw_target
 
-        LOG.debug("%s -> %s (step:%s, wait: %s)" % (screen_brightness, raw_target,
-                                                    step, wait))
+        interval = abs(self.conf.screen_brightness_time / diff)
+        # Sleeping less than 5ms doesn't looks good
+        while interval < 0.005:
+            interval *= 2
+            step *= 2
+
+        LOG.debug("%s -> %s (step:%s, interval: %s)" % (screen_brightness, raw_target,
+                                                        step, interval))
         while not is_finished():
             self.set_screen_brightness(screen_brightness)
-            time.sleep(wait)
+            time.sleep(interval)
             screen_brightness += step
         self.set_screen_brightness(raw_target)
 
