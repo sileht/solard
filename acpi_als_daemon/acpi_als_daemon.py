@@ -14,12 +14,15 @@
 
 import argparse
 from concurrent import futures
+import ctypes
 from datetime import datetime
 import logging
 import math
 import os
 import time
+import threading
 import sys
+
 
 TRACE = 5
 logging.addLevelName(TRACE, 'TRACE')
@@ -48,6 +51,18 @@ KEYBOARD_BACKLIGHT_SYSPATH = "/sys/class/leds/%s/brightness"
 SUPPORTED_KEYBOARD_BACKLIGHT_MODULES = ["asus::kbd_backlight"]
 
 
+xlib = ctypes.cdll.LoadLibrary( 'libX11.so.6')
+xss = ctypes.cdll.LoadLibrary( 'libXss.so.1')
+
+class XScreenSaverInfo(ctypes.Structure):
+    """ typedef struct { ... } XScreenSaverInfo; """
+    _fields_ = [('window',      ctypes.c_ulong), # screen saver window
+                ('state',       ctypes.c_int),   # off,on,disabled
+                ('kind',        ctypes.c_int),   # blanked,internal,external
+                ('since',       ctypes.c_ulong), # milliseconds
+                ('idle',        ctypes.c_ulong), # milliseconds
+                ('event_mask',  ctypes.c_ulong)] # events
+
 class BacklightsChangedOutside(Exception):
     pass
 
@@ -67,23 +82,46 @@ class AcpiAlsDaemon(object):
         if self.last_ambient_light < self.conf.screen_brightness_min:
             self.last_ambient_light = 0
 
+        self.was_already_idle = False
+
+
+    def idle(self):
+        dpy = xlib.XOpenDisplay(os.environ['DISPLAY'])
+        root = xlib.XDefaultRootWindow(dpy)
+        xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
+        xss_info = xss.XScreenSaverAllocInfo()
+        xss.XScreenSaverQueryInfo(dpy, root, xss_info)
+        idle_ms = xss_info.contents.idle
+        return idle_ms > self.conf.idle_threshold * 1000.0
+
     def loop(self):
         while True:
             start = datetime.utcnow()
 
             try:
                 if self.lid_is_closed():
+                    self.was_already_idle = False
                     if self.last_keyboard_brightness != 0:
                         self.set_keyboard_brightness(0)
+                elif self.idle():
+                    if not self.was_already_idle:
+                        self.raise_if_changed_outside()
+                        self.update_all_backlights(0, 0, 100)
+                    time.sleep(0.1)
+                    self.was_already_idle = True
+                    self.force_update = True
                 elif self.force_update:
+                    self.was_already_idle = False
                     self.update_all_backlights()
                     self.force_update = False
                 else:
+                    self.was_already_idle = False
                     self.raise_if_changed_outside()
-                    changed_enough = ((abs(self.get_ambient_light() - self.last_ambient_light) >
+                    ambient_light = self.get_ambient_light()
+                    changed_enough = ((abs(ambient_light - self.last_ambient_light) >
                                        self.conf.ambient_light_delta_update))
                     if changed_enough:
-                        self.update_all_backlights()
+                        self.update_all_backlights(ambient_light)
             except BacklightsChangedOutside:
                 if self.conf.stop_on_outside_change:
                     LOG.info("Brightness changed outside, exiting")
@@ -101,16 +139,20 @@ class AcpiAlsDaemon(object):
                 wait = max(0, self.conf.brightness_update_interval - elapsed)
                 time.sleep(wait)
 
-    def update_all_backlights(self):
-        ambient_light = self.get_ambient_light()
+    def update_all_backlights(self, ambient_light=None,
+                              screen_pct=None, keyboard_pct=None):
+        if ambient_light is None:
+            ambient_light = self.get_ambient_light()
         LOG.info("> Change brightness from %d%% to %d%% start" %
                  (self.last_ambient_light, ambient_light))
         with futures.ThreadPoolExecutor(max_workers=20) as executor:
             futs = [
                 executor.submit(self.slowly_set_keyboard_brightness,
-                                ambient_light),
+                                ambient_light if keyboard_pct is None else
+                                keyboard_pct),
                 executor.submit(self.slowly_set_screen_brightness,
-                                ambient_light),
+                                ambient_light if screen_pct is None else
+                                screen_pct),
             ]
             futures.wait(futs)
             for fut in futs:
@@ -351,6 +393,10 @@ def main():
     parser.add_argument('--only-once', action='store_true',
                         help="Set values once and exit.")
 
+    parser.add_argument("--idle-threshold",
+                        default=60.0,
+                        type=float,
+                        help="Idle time before dim screen in seconds")
     parser.add_argument("--brightness-update-interval", "-i",
                         default=2.0,
                         type=float,
