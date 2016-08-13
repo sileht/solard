@@ -63,6 +63,18 @@ class XScreenSaverInfo(ctypes.Structure):
                 ('idle',        ctypes.c_ulong), # milliseconds
                 ('event_mask',  ctypes.c_ulong)] # events
 
+class XScreenSaverQuerier(object):
+    def __init__(self):
+        self.dpy = xlib.XOpenDisplay(os.environ['DISPLAY'])
+        self.root = xlib.XDefaultRootWindow(self.dpy)
+        xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
+        self.xss_info = xss.XScreenSaverAllocInfo()
+
+    def get_idle(self):
+        xss.XScreenSaverQueryInfo(self.dpy, self.root, self.xss_info)
+        return self.xss_info.contents.idle
+
+
 class BacklightsChangedOutside(Exception):
     pass
 
@@ -84,15 +96,10 @@ class AcpiAlsDaemon(object):
 
         self.was_already_idle = False
 
+        self.xscreensaver_querier = XScreenSaverQuerier()
 
     def idle(self):
-        dpy = xlib.XOpenDisplay(os.environ['DISPLAY'])
-        root = xlib.XDefaultRootWindow(dpy)
-        xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
-        xss_info = xss.XScreenSaverAllocInfo()
-        xss.XScreenSaverQueryInfo(dpy, root, xss_info)
-        idle_ms = xss_info.contents.idle
-        return idle_ms > self.conf.idle_threshold * 1000.0
+        return self.xscreensaver_querier.get_idle() > self.conf.idle_threshold * 1000.0
 
     def loop(self):
         while True:
