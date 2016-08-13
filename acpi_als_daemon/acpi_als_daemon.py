@@ -22,6 +22,8 @@ import os
 import time
 import threading
 import sys
+import Xlib.display
+import Xlib.Xatom
 
 
 TRACE = 5
@@ -64,15 +66,33 @@ class XScreenSaverInfo(ctypes.Structure):
                 ('event_mask',  ctypes.c_ulong)] # events
 
 class XScreenSaverQuerier(object):
+    # This create two X clients..., but Xlib python binding doesn't have xss
+    # extention
     def __init__(self):
-        self.dpy = xlib.XOpenDisplay(os.environ['DISPLAY'])
-        self.root = xlib.XDefaultRootWindow(self.dpy)
+        self.dpy = Xlib.display.Display()
+        self.screen = self.dpy.screen()
+        self.root = self.screen.root
+
+        self.c_dpy = xlib.XOpenDisplay(os.environ['DISPLAY'])
+        self.c_root = xlib.XDefaultRootWindow(self.c_dpy)
         xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
-        self.xss_info = xss.XScreenSaverAllocInfo()
+        self.c_xss_info = xss.XScreenSaverAllocInfo()
 
     def get_idle(self):
-        xss.XScreenSaverQueryInfo(self.dpy, self.root, self.xss_info)
-        return self.xss_info.contents.idle
+        active_windows = self.root.get_property(
+            self.dpy.get_atom("_NET_ACTIVE_WINDOW"),
+            Xlib.Xatom.WINDOW, 0, 4).value
+        if active_windows:
+            win = self.dpy.create_resource_object('window', active_windows[0])
+            size = win.get_geometry()
+            is_fullscreen = (size._data["width"] == self.screen.width_in_pixels and
+                             size._data["height"] == self.screen.height_in_pixels)
+            if is_fullscreen:
+                LOG.debug("Fullscreen App detected, no dim")
+                return 0
+
+        xss.XScreenSaverQueryInfo(self.c_dpy, self.c_root, self.c_xss_info)
+        return self.c_xss_info.contents.idle
 
 
 class BacklightsChangedOutside(Exception):
