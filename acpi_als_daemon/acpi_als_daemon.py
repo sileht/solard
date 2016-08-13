@@ -99,7 +99,9 @@ class AcpiAlsDaemon(object):
         self.xscreensaver_querier = XScreenSaverQuerier()
 
     def idle(self):
-        return self.xscreensaver_querier.get_idle() > self.conf.idle_threshold * 1000.0
+        if self.conf.idle_dim is None:
+            return False
+        return self.xscreensaver_querier.get_idle() > self.conf.idle_dim * 1000.0
 
     def loop(self):
         while True:
@@ -113,7 +115,8 @@ class AcpiAlsDaemon(object):
                 elif self.idle():
                     if not self.was_already_idle:
                         self.raise_if_changed_outside()
-                        self.update_all_backlights(0, 0, 100)
+                        self.update_all_backlights(
+                            0, self.conf.screen_brightness_dim_min, 100)
                     time.sleep(0.1)
                     self.was_already_idle = True
                     self.force_update = True
@@ -153,12 +156,16 @@ class AcpiAlsDaemon(object):
         LOG.info("> Change brightness from %d%% to %d%% start" %
                  (self.last_ambient_light, ambient_light))
         with futures.ThreadPoolExecutor(max_workers=20) as executor:
+            if screen_pct is None:
+                if ambient_light < self.conf.screen_brightness_min:
+                    screen_pct = self.conf.screen_brightness_min
+                else:
+                    screen_pct = ambient_light
             futs = [
                 executor.submit(self.slowly_set_keyboard_brightness,
                                 ambient_light if keyboard_pct is None else
                                 keyboard_pct),
                 executor.submit(self.slowly_set_screen_brightness,
-                                ambient_light if screen_pct is None else
                                 screen_pct),
             ]
             futures.wait(futs)
@@ -276,8 +283,6 @@ class AcpiAlsDaemon(object):
             raise BacklightsChangedOutside
 
     def slowly_set_screen_brightness(self, target):
-        if target < self.conf.screen_brightness_min:
-            target = self.conf.screen_brightness_min
         raw_target = int(self.conf.screen_brightness_max * target / 100)
         LOG.debug("Set screen backlight to %d%% (%d%%)" % (target, raw_target))
         screen_brightness = self.get_screen_brightness()
@@ -400,10 +405,11 @@ def main():
     parser.add_argument('--only-once', action='store_true',
                         help="Set values once and exit.")
 
-    parser.add_argument("--idle-threshold",
+    parser.add_argument("--idle-dim",
                         default=60.0,
                         type=float,
-                        help="Idle time before dim screen in seconds")
+                        help=("Idle time before dim screen in seconds. "
+                              "(None to disable)"))
     parser.add_argument("--brightness-update-interval", "-i",
                         default=2.0,
                         type=float,
@@ -414,6 +420,11 @@ def main():
                         default=5,
                         type=int,
                         help="Minimal percent of allowed brightness")
+    parser.add_argument("--screen-brightness-dim-min",
+                        default=1,
+                        type=int,
+                        help=("Minimal percent of allowed brightness for "
+                              "idle dim"))
     parser.add_argument("--screen-brightness-time", "-t",
                         default=0.2,
                         type=float,
