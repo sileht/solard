@@ -162,6 +162,8 @@ class AcpiAlsDaemon(object):
         except IOError:
             LOG.error("Fail to enable ambient light sensor, "
                     "are udev rules configured correctly ?")
+        # Ensure next read value will be up to date
+        time.sleep(0.2)
 
     def get_ambient_light(self):
         path = ALS_INPUT_SYSPATH_MAP[self.conf.ambient_light_sensor]
