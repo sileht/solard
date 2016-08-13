@@ -426,7 +426,7 @@ def main():
                         help=("Minimal percent of allowed brightness for "
                               "idle dim"))
     parser.add_argument("--screen-brightness-time", "-t",
-                        default=0.2,
+                        default=0.5,
                         type=float,
                         help="Duration of screen brightness change in seconds")
     parser.add_argument("--keyboard-brightness-step-duration",
