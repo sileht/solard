@@ -115,6 +115,7 @@ class AcpiAlsDaemon(object):
                 elif self.idle():
                     if not self.was_already_idle:
                         self.raise_if_changed_outside()
+                        LOG.info("Dim because of idle user")
                         self.update_all_backlights(
                             0, self.conf.screen_brightness_dim_min, 100)
                     time.sleep(0.1)
