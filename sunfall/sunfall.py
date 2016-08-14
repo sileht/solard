@@ -442,7 +442,7 @@ def main():
                        type=float,
                        help="Ambient Light to brightness factor")
     group.add_argument("--ambient-light-delta-update", "-u",
-                       default=2,
+                       default=3,
                        type=int,
                        help=("Minimun Ambient Light Sensor percentage delta "
                              "before really change the brightness"))
