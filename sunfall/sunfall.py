@@ -466,11 +466,11 @@ def main():
                         choices=available_als_modules,
                         help="Ambient Light Sensor kernel module")
     parser.add_argument("--ambient-light-factor", "-f",
-                        default=1.5,
+                        default=1,
                         type=float,
                         help="Ambient Light Sensor percentage factor")
     parser.add_argument("--ambient-light-delta-update", "-u",
-                        default=3,
+                        default=2,
                         type=int,
                         help=("Minimun Ambient Light Sensor percentage delta "
                               "before really change the brightness"))
