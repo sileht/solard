@@ -33,8 +33,7 @@ class LoggerAdapter(logging.LoggerAdapter):
     def trace(self, msg, *args, **kwargs):
         self.log(TRACE, msg, *args, **kwargs)
 
-
-LOG = LoggerAdapter(logging.getLogger("acpi-als-daemon"), {})
+LOG = LoggerAdapter(logging.getLogger("solard"), {})
 
 LID_SYSPATH = "/proc/acpi/button/lid/LID/state"
 
@@ -171,22 +170,20 @@ class Daemon(object):
 
     def update_all_backlights(self, ambient_light=None,
                               screen_pct=None, keyboard_pct=None):
+        if ambient_light < self.conf.screen_brightness_min:
+            ambient_light = self.conf.screen_brightness_min
         if ambient_light is None:
             ambient_light = self.get_ambient_light()
+        if screen_pct is None:
+            screen_pct = ambient_light
+        if keyboard_pct is None:
+            keyboard_pct = ambient_light
         LOG.info("> Change brightness from %d%% to %d%% start" %
-                 (self.last_ambient_light, ambient_light))
+                 (self.last_ambient_light, screen_pct))
         with futures.ThreadPoolExecutor(max_workers=20) as executor:
-            if screen_pct is None:
-                if ambient_light < self.conf.screen_brightness_min:
-                    screen_pct = self.conf.screen_brightness_min
-                else:
-                    screen_pct = ambient_light
             futs = [
-                executor.submit(self.slowly_set_keyboard_brightness,
-                                ambient_light if keyboard_pct is None else
-                                keyboard_pct),
-                executor.submit(self.slowly_set_screen_brightness,
-                                screen_pct),
+                executor.submit(self.fade_keyboard_brightness, keyboard_pct),
+                executor.submit(self.fade_screen_brightness, screen_pct),
             ]
             futures.wait(futs)
             for fut in futs:
@@ -299,7 +296,7 @@ class Daemon(object):
             self.last_screen_brightness = screen_brightness
             raise BacklightsChangedOutside
 
-    def slowly_set_screen_brightness(self, target):
+    def fade_screen_brightness(self, target):
         raw_target = int(self.conf.screen_brightness_max * float(target) / 100.0)
         LOG.debug("Set screen backlight to %d%% (%d%%)" % (target, raw_target))
         screen_brightness = self.get_screen_brightness()
@@ -357,12 +354,13 @@ class Daemon(object):
         LOG.debug("Current keyboard backlight: %s" % value)
         return value
 
-    def slowly_set_keyboard_brightness(self, percent):
+    def fade_keyboard_brightness(self, percent):
         if self.conf.keyboard_backlight is None:
             return
         # NOTE(sileht): we currently support only the asus one
         # so we assume value 0 to 3 are the correct range
-        targets = range(1, 4) if percent else range(2, -1, -1)
+        enabled = percent < self.conf.keyboard_backlight_threshold
+        targets = range(1, 4) if enabled else range(2, -1, -1)
 
         if targets[-1] == self.last_keyboard_brightness:
             return
@@ -457,11 +455,16 @@ def main():
                        default=0.5,
                        type=float,
                        help="Duration of screen brightness change in seconds")
+    group.add_argument("--keyboard-backlight-threshold",
+                       default=15,
+                       type=float,
+                       help="Keyboard backlight activation threshold (0-100)")
     group.add_argument("--keyboard-brightness-step-duration",
                        default=0.005,
                        type=float,
                        help="Duration between keyboard brightness step")
 
+    # Drivers config
     group = parser.add_argument_group("drivers selections")
     group.add_argument("--screen-backlight", "-s",
                        default=available_screen_backlight_modules[0],

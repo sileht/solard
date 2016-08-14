@@ -1,6 +1,6 @@
-===============================
-sunfall
-===============================
+======
+solard
+======
 
 An ACPI Screen and Keyboard backlight controls via Ambient Light Sensor
 
@@ -77,13 +77,14 @@ And then reload udev rules::
 Test it
 -------
 
-   ./sunfall/sunfall.py -v
+   ./solard/__init__.py -v
 
 
-Install it (optional)
+Install it
 ---------------------
 
     pip install .
+    solard --help
 
 
 My personnal setup
@@ -100,8 +101,8 @@ My desktop uses i3 and mate-desktop. All FN keys works.
 
 My i3 config contains::
 
-    bindcode 248 exec --no-startup-id "bash -c 'pkill sunfall;sunfall --stop-on-outside-change;'"
-    exec_always --no-startup-id "bash -c 'pkill sunfall;sunfall --stop-on-outside-change;'"
+    bindcode 248 exec --no-startup-id "bash -c 'pkill solard;solard --stop-on-outside-change;'"
+    exec_always --no-startup-id "bash -c 'pkill solard;solard --stop-on-outside-change;'"
 
 This bind the Fn+a (or Fn+q) key to this tool and start this tool on i3
 startup.
