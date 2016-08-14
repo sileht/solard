@@ -465,7 +465,7 @@ def main():
                        type=float,
                        help="Duration of screen brightness change in seconds")
     group.add_argument("--keyboard-backlight-threshold",
-                       default=15,
+                       default=10,
                        type=float,
                        help="Keyboard backlight activation threshold (0-100)")
     group.add_argument("--keyboard-brightness-step-duration",
