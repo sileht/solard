@@ -115,12 +115,13 @@ class Daemon(object):
             self.last_ambient_light = 0
 
         self.was_already_idle = False
-
-        self.xscreensaver_querier = XScreenSaverQuerier()
+        self.xscreensaver_querier = None
 
     def idle(self):
-        if self.conf.idle_dim is None:
+        if self.conf.idle_dim <= 0:
             return False
+        if self.xscreensaver_querier is None:
+            self.xscreensaver_querier = XScreenSaverQuerier()
         return self.xscreensaver_querier.get_idle() > self.conf.idle_dim * 1000.0
 
     def loop(self):
@@ -163,11 +164,9 @@ class Daemon(object):
             except Exception:
                 LOG.exception("Something wrong append, retrying later.")
 
-            if self.conf.only_once:
-                break
-            elif not self.force_update:
+            if not self.force_update:
                 elapsed = (datetime.utcnow() - start).total_seconds()
-                wait = max(0, self.conf.brightness_update_interval - elapsed)
+                wait = max(0, self.conf.update_interval - elapsed)
                 time.sleep(wait)
 
     def update_all_backlights(self, ambient_light=None,
@@ -259,8 +258,7 @@ class Daemon(object):
             # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
             # percent = min(int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) /
             #                  10 * 10), 100)
-            percent = min(math.log10(value) / 5.0 * 100.0 *
-                          self.conf.ambient_light_factor, 100)
+            percent = min(math.log10(value) / self.conf.ambient_light_factor * 100.0, 100)
         else:
             percent = 0
         LOG.debug("Get ambient light (normalized): %s" % percent)
@@ -420,60 +418,67 @@ def main():
     parser.add_argument('--debug', '-d', action='store_true')
     parser.add_argument('--quiet', '-q', action='store_true')
     parser.add_argument('--log', help="log file, disable stdout output and set log level to DEBUG")
-
-    parser.add_argument('--only-once', action='store_true',
-                        help="Set values once and exit.")
-
-    parser.add_argument("--idle-dim",
-                        default=60.0,
-                        type=float,
-                        help=("Idle time before dim screen in seconds. "
-                              "(None to disable)"))
-    parser.add_argument("--brightness-update-interval", "-i",
+    parser.add_argument("--stop-on-outside-change", action='store_true',
+                        help="If brightness is changed outside the daemon stop.")
+    parser.add_argument("--update-interval", "-i",
                         default=2.0,
                         type=float,
                         help="Interval between brightness update")
-    parser.add_argument("--stop-on-outside-change", action='store_true',
-                        help="If brightness is changed outside the daemon stop.")
-    parser.add_argument("--screen-brightness-min", "-m",
-                        default=5,
-                        type=int,
-                        help="Minimal percent of allowed brightness")
-    parser.add_argument("--screen-brightness-dim-min",
-                        default=1,
-                        type=int,
-                        help=("Minimal percent of allowed brightness for "
-                              "idle dim"))
-    parser.add_argument("--screen-brightness-time", "-t",
-                        default=0.5,
-                        type=float,
-                        help="Duration of screen brightness change in seconds")
-    parser.add_argument("--keyboard-brightness-step-duration",
-                        default=0.005,
-                        type=float,
-                        help="Duration between keyboard brightness step")
-    parser.add_argument("--screen-backlight", "-s",
-                        default=available_screen_backlight_modules[0],
-                        choices=available_screen_backlight_modules,
-                        help="Screen backlight kernel module")
-    parser.add_argument("--keyboard-backlight", "-k",
-                        default=(available_keyboard_backlight_modules[0] if
-                                 available_keyboard_backlight_modules else 0),
-                        choices=available_keyboard_backlight_modules,
-                        help="Keyboard backlight kernel module")
-    parser.add_argument("--ambient-light-sensor", "-a",
-                        default=available_als_modules[0],
-                        choices=available_als_modules,
-                        help="Ambient Light Sensor kernel module")
-    parser.add_argument("--ambient-light-factor", "-f",
-                        default=1,
-                        type=float,
-                        help="Ambient Light Sensor percentage factor")
-    parser.add_argument("--ambient-light-delta-update", "-u",
-                        default=2,
-                        type=int,
-                        help=("Minimun Ambient Light Sensor percentage delta "
-                              "before really change the brightness"))
+
+    # Dim configuration
+    group = parser.add_argument_group("idle dim arguments")
+    group.add_argument("--idle-dim",
+                       default=0,
+                       type=float,
+                       help=("Idle time before dim screen in seconds. "
+                             "(0 to disable)"))
+    group.add_argument("--screen-brightness-dim-min",
+                       default=5,
+                       type=int,
+                       help=("Minimal percent of allowed brightness for "
+                             "idle dim"))
+
+    # Ambient light sensor configuration
+    group = parser.add_argument_group("ambient light sensor adjustments")
+    group.add_argument("--ambient-light-factor", "-f",
+                       default=5.5,
+                       type=float,
+                       help="Ambient Light to brightness factor")
+    group.add_argument("--ambient-light-delta-update", "-u",
+                       default=2,
+                       type=int,
+                       help=("Minimun Ambient Light Sensor percentage delta "
+                             "before really change the brightness"))
+
+    # Brightness update configuration
+    group = parser.add_argument_group("brightness smooth update configuration")
+    group.add_argument("--screen-brightness-min", "-m",
+                       default=5,
+                       type=int,
+                       help="Minimal percent of allowed brightness")
+    group.add_argument("--screen-brightness-time", "-t",
+                       default=0.5,
+                       type=float,
+                       help="Duration of screen brightness change in seconds")
+    group.add_argument("--keyboard-brightness-step-duration",
+                       default=0.005,
+                       type=float,
+                       help="Duration between keyboard brightness step")
+
+    group = parser.add_argument_group("drivers selections")
+    group.add_argument("--screen-backlight", "-s",
+                       default=available_screen_backlight_modules[0],
+                       choices=available_screen_backlight_modules,
+                       help="Screen backlight kernel module")
+    group.add_argument("--keyboard-backlight", "-k",
+                       default=(available_keyboard_backlight_modules[0] if
+                                available_keyboard_backlight_modules else 0),
+                       choices=available_keyboard_backlight_modules,
+                       help="Keyboard backlight kernel module")
+    group.add_argument("--ambient-light-sensor", "-a",
+                       default=available_als_modules[0],
+                       choices=available_als_modules,
+                       help="Ambient Light Sensor kernel module")
 
     conf = parser.parse_args()
     daemon = Daemon(conf)
