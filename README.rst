@@ -74,16 +74,16 @@ And then reload udev rules::
     udevadm control --reload-rules
     udevadm trigger
 
-Test it
--------
+Usage
+-----
 
-   ./solard/__init__.py -v
+Install it::
+
+    pip install --user git+https://github.com/sileht/solard.git#egg=solard
 
 
-Install it
----------------------
+Run it::
 
-    pip install .
     solard --help
 
 

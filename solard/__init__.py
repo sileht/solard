@@ -20,7 +20,6 @@ import logging
 import math
 import os
 import time
-import threading
 import sys
 import Xlib.display
 import Xlib.Xatom
@@ -28,6 +27,7 @@ import Xlib.Xatom
 
 TRACE = 5
 logging.addLevelName(TRACE, 'TRACE')
+
 
 class LoggerAdapter(logging.LoggerAdapter):
     def trace(self, msg, *args, **kwargs):
@@ -44,25 +44,28 @@ ALS_SYSPATH = "/sys/bus/acpi/drivers/%s/ACPI0008:00"
 SUPPORTED_ALS_MODULES = ["acpi_als", "als"]
 
 ALS_INPUT_SYSPATH_MAP = {
-    "acpi_als": os.path.join(ALS_SYSPATH, "iio:device0/in_illuminance_input") % "acpi_als",
-    "als": os.path.join(ALS_SYSPATH, "ali") % "als"
+    "acpi_als": os.path.join(ALS_SYSPATH % "acpi_als",
+                             "iio:device0/in_illuminance_input"),
+    "als": os.path.join(ALS_SYSPATH % "als", "ali")
 }
 
 KEYBOARD_BACKLIGHT_SYSPATH = "/sys/class/leds/%s/brightness"
 SUPPORTED_KEYBOARD_BACKLIGHT_MODULES = ["asus::kbd_backlight"]
 
 
-xlib = ctypes.cdll.LoadLibrary( 'libX11.so.6')
-xss = ctypes.cdll.LoadLibrary( 'libXss.so.1')
+xlib = ctypes.cdll.LoadLibrary('libX11.so.6')
+xss = ctypes.cdll.LoadLibrary('libXss.so.1')
+
 
 class XScreenSaverInfo(ctypes.Structure):
     """ typedef struct { ... } XScreenSaverInfo; """
-    _fields_ = [('window',      ctypes.c_ulong), # screen saver window
-                ('state',       ctypes.c_int),   # off,on,disabled
-                ('kind',        ctypes.c_int),   # blanked,internal,external
-                ('since',       ctypes.c_ulong), # milliseconds
-                ('idle',        ctypes.c_ulong), # milliseconds
-                ('event_mask',  ctypes.c_ulong)] # events
+    _fields_ = [('window',      ctypes.c_ulong),  # screen saver window
+                ('state',       ctypes.c_int),    # off,on,disabled
+                ('kind',        ctypes.c_int),    # blanked,internal,external
+                ('since',       ctypes.c_ulong),  # milliseconds
+                ('idle',        ctypes.c_ulong),  # milliseconds
+                ('event_mask',  ctypes.c_ulong)]  # events
+
 
 class XScreenSaverQuerier(object):
     # This create two X clients..., but Xlib python binding doesn't have xss
@@ -84,8 +87,10 @@ class XScreenSaverQuerier(object):
         if active_windows:
             win = self.dpy.create_resource_object('window', active_windows[0])
             size = win.get_geometry()
-            is_fullscreen = (size._data["width"] == self.screen.width_in_pixels and
-                             size._data["height"] == self.screen.height_in_pixels)
+            is_fullscreen = (
+                size._data["width"] == self.screen.width_in_pixels and
+                size._data["height"] == self.screen.height_in_pixels
+            )
             if is_fullscreen:
                 LOG.debug("Fullscreen App detected, no dim")
                 return 0
@@ -121,7 +126,7 @@ class Daemon(object):
             return False
         if self.xscreensaver_querier is None:
             self.xscreensaver_querier = XScreenSaverQuerier()
-        return self.xscreensaver_querier.get_idle() > self.conf.idle_dim * 1000.0
+        return self.xscreensaver_querier.get_idle() > self.conf.idle_dim * 1000
 
     def loop(self):
         while True:
@@ -149,8 +154,9 @@ class Daemon(object):
                     self.was_already_idle = False
                     self.raise_if_changed_outside()
                     ambient_light = self.get_ambient_light()
-                    changed_enough = ((abs(ambient_light - self.last_ambient_light) >
-                                       self.conf.ambient_light_delta_update))
+                    changed_enough = (
+                        (abs(ambient_light - self.last_ambient_light) >
+                         self.conf.ambient_light_delta_update))
                     if changed_enough:
                         self.update_all_backlights(ambient_light)
             except BacklightsChangedOutside:
@@ -188,7 +194,7 @@ class Daemon(object):
             futures.wait(futs)
             for fut in futs:
                 fut.result()
-        LOG.info("> Change brightness from %d%% to %d%% finish"  %
+        LOG.info("> Change brightness from %d%% to %d%% finish" %
                  (self.last_ambient_light, ambient_light))
         self.last_ambient_light = ambient_light
 
@@ -234,7 +240,7 @@ class Daemon(object):
             self.write_sys_value(path, "1")
         except IOError:
             LOG.error("Fail to enable ambient light sensor, "
-                    "are udev rules configured correctly ?")
+                      "are udev rules configured correctly ?")
         # Ensure next read value will be up to date
         time.sleep(0.2)
 
@@ -244,7 +250,7 @@ class Daemon(object):
             value = int(self.read_sys_value(path))
         except IOError:
             LOG.error("Fail to read ambient light sensor value, "
-                    "are udev rules configured correctly ?")
+                      "are udev rules configured correctly ?")
             return 100
         LOG.trace("Get ambient light (raw): %s)" % value)
 
@@ -252,10 +258,8 @@ class Daemon(object):
         # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
         # previous/other Zenbook can report only 5 values
         if value > 0:
-            # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
-            # percent = min(int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) / 10 * 10), 100)
-            # Black magic from: https://msdn.microsoft.com/en-us/library/windows/desktop/dd319008(v=vs.85).aspx
-            percent = min(math.log10(value) / self.conf.ambient_light_factor * 100.0, 100)
+            percent = min(math.log10(value) / self.conf.ambient_light_factor
+                          * 100.0, 100)
         else:
             percent = 0
         LOG.debug("Get ambient light (normalized): %s" % percent)
@@ -271,10 +275,11 @@ class Daemon(object):
     def get_screen_brightness(self):
         try:
             value = int(self.read_sys_value(os.path.join(
-                SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight, "brightness")))
+                SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight,
+                "brightness")))
         except IOError:
             LOG.error("Fail to get screen brightness, "
-                    "are udev rules configured correctly ? ")
+                      "are udev rules configured correctly ? ")
         LOG.debug("Current screen backlight: %s" % value)
         return value
 
@@ -297,7 +302,8 @@ class Daemon(object):
             raise BacklightsChangedOutside
 
     def fade_screen_brightness(self, target):
-        raw_target = int(self.conf.screen_brightness_max * float(target) / 100.0)
+        raw_target = int(self.conf.screen_brightness_max * float(target)
+                         / 100.0)
         LOG.debug("Set screen backlight to %d%% (%d%%)" % (target, raw_target))
         screen_brightness = self.get_screen_brightness()
 
@@ -317,8 +323,8 @@ class Daemon(object):
             interval *= 2
             step *= 2
 
-        LOG.debug("%s -> %s (step:%s, interval: %s)" % (screen_brightness, raw_target,
-                                                        step, interval))
+        LOG.debug("%s -> %s (step:%s, interval: %s)" % (
+            screen_brightness, raw_target, step, interval))
 
         screen_brightness += step
         while not is_finished():
@@ -331,11 +337,12 @@ class Daemon(object):
         self.raise_if_screen_changed_outside()
         try:
             self.write_sys_value(os.path.join(
-                SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight, "brightness"
+                SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight,
+                "brightness"
             ), "%d" % value)
         except IOError:
             LOG.error("Fail to set screen brightness, "
-                    "are udev rules configured correctly ? ")
+                      "are udev rules configured correctly ? ")
         self.last_screen_brightness = value
 
     def get_keyboard_brightness(self):
@@ -350,7 +357,7 @@ class Daemon(object):
                 KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight))
         except IOError:
             LOG.error("Fail to set keyboard backlight, "
-                    "are udev rules configured correctly ?")
+                      "are udev rules configured correctly ?")
         LOG.debug("Current keyboard backlight: %s" % value)
         return value
 
@@ -373,11 +380,12 @@ class Daemon(object):
     def set_keyboard_brightness(self, value):
         self.raise_if_keyboard_changed_outside()
         try:
-            self.write_sys_value(KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight,
-                                 "%s" % value)
+            self.write_sys_value(
+                KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight,
+                "%s" % value)
         except IOError:
             LOG.error("Fail to set keyboard backlight, "
-                    "are udev rules configured correctly ?")
+                      "are udev rules configured correctly ?")
         self.last_keyboard_brightness = value
 
 
@@ -404,7 +412,6 @@ def main():
         if os.path.exists(KEYBOARD_BACKLIGHT_SYSPATH % mod)
     ]
 
-
     parser = argparse.ArgumentParser(
         description=("Screen and Keyboard backlight controls via "
                      "Ambient Light Sensor ")
@@ -412,9 +419,11 @@ def main():
     parser.add_argument('--verbose', '-v', action='store_true')
     parser.add_argument('--debug', '-d', action='store_true')
     parser.add_argument('--quiet', '-q', action='store_true')
-    parser.add_argument('--log', help="log file, disable stdout output and set log level to DEBUG")
+    parser.add_argument('--log', help=("log file, disable stdout output and "
+                                       "set log level to DEBUG"))
     parser.add_argument("--stop-on-outside-change", action='store_true',
-                        help="If brightness is changed outside the daemon stop.")
+                        help=("If brightness is changed outside the "
+                              "daemon stop."))
     parser.add_argument("--update-interval", "-i",
                         default=2.0,
                         type=float,
