@@ -483,8 +483,12 @@ def main():
     conf = parser.parse_args()
     daemon = Daemon(conf)
     daemon.setup_logging()
-    daemon.enable_ambient_light()
-    daemon.loop()
+    try:
+        daemon.enable_ambient_light()
+        daemon.loop()
+    except KeyboardInterrupt:
+        LOG.info("SIGINT received, exiting...")
+        sys.exit(0)
 
 
 if __name__ == '__main__':
