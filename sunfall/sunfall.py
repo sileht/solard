@@ -255,14 +255,12 @@ class Daemon(object):
         # This mapping have been done for Asus Zenbook UX303UA, but according
         # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
         # previous/other Zenbook can report only 5 values
-        if value < 10:
-            percent = int(value)
-        elif value > 0:
+        if value > 0:
             # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
             # percent = min(int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) /
             #                  10 * 10), 100)
-            percent = min(int(math.log10(value) / 5.0 * 100.0 *
-                              self.conf.ambient_light_factor), 100)
+            percent = min(math.log10(value) / 5.0 * 100.0 *
+                          self.conf.ambient_light_factor, 100)
         else:
             percent = 0
         LOG.debug("Get ambient light (normalized): %s" % percent)
@@ -304,7 +302,7 @@ class Daemon(object):
             raise BacklightsChangedOutside
 
     def slowly_set_screen_brightness(self, target):
-        raw_target = int(self.conf.screen_brightness_max * target / 100)
+        raw_target = int(self.conf.screen_brightness_max * float(target) / 100.0)
         LOG.debug("Set screen backlight to %d%% (%d%%)" % (target, raw_target))
         screen_brightness = self.get_screen_brightness()
 
