@@ -106,3 +106,6 @@ startup.
 Using *--stop-on-outside-change* allows to stop the automatic brightness
 configuration with the keyboard or the screen brightness keys are used
 (Fn+f3 -> Fn+f4).
+
+I aslo disable all brightness feature of mate-power-manager (dim on idle,
+Reduce backlight on Battery), to not conflict with this tool.
