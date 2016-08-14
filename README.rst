@@ -84,7 +84,7 @@ Install it::
 
 Run it::
 
-    solard --help
+    ~/.local/bin/solard --help
 
 
 My personnal setup
