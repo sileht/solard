@@ -1,8 +1,8 @@
 ===============================
-acpi-als-daemon
+sunfall
 ===============================
 
-ACPI Screen and Keyboard backlight controls via Ambient Light Sensor
+An ACPI Screen and Keyboard backlight controls via Ambient Light Sensor
 
 Small python program that read via als or acpi_als module the Ambient Light
 Sensor value and configure the screen and keyboard backlight.
@@ -10,6 +10,9 @@ Sensor value and configure the screen and keyboard backlight.
 Many thanks to `danieleds <https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller>`_
 and `Perlover <https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller>`_. They have done all the
 hard work, I have just rewritten a python version, that doesn't need to be compiled.
+
+Note that many power manager applications control brightness too and can conflict
+with this tool.
 
 Pull request are welcome.
 
@@ -71,10 +74,10 @@ And then reload udev rules::
     udevadm control --reload-rules
     udevadm trigger
 
-Run it
-------
+Test it
+-------
 
-   ./acpi_als_daemon/acpi_als_daemon.py -v
+   ./sunfall/sunfall.py -v
 
 
 Install it (optional)
@@ -97,8 +100,8 @@ My desktop uses i3 and mate-desktop. All FN keys works.
 
 My i3 config contains::
 
-    bindcode 248 exec "bash -c 'pkill acpi-als-daemon;acpi-als-daemon --stop-on-outside-change;'"
-    exec_always "bash -c 'pkill acpi-als-daemon;acpi-als-daemon --stop-on-outside-change;'"
+    bindcode 248 exec "bash -c 'pkill sunfall;sunfall --stop-on-outside-change;'"
+    exec_always "bash -c 'pkill sunfall;sunfall --stop-on-outside-change;'"
 
 This bind the Fn+a (or Fn+q) key to this tool and start this tool on i3
 startup.
