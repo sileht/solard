@@ -256,8 +256,8 @@ class Daemon(object):
         # previous/other Zenbook can report only 5 values
         if value > 0:
             # Black magic from: https://github.com/Perlover/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/asus-ux305/service/main.cpp#L225
-            # percent = min(int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) /
-            #                  10 * 10), 100)
+            # percent = min(int(( math.log( value / 10000.0 * 230 + 0.94 ) * 18 ) / 10 * 10), 100)
+            # Black magic from: https://msdn.microsoft.com/en-us/library/windows/desktop/dd319008(v=vs.85).aspx
             percent = min(math.log10(value) / self.conf.ambient_light_factor * 100.0, 100)
         else:
             percent = 0
@@ -362,10 +362,7 @@ class Daemon(object):
             return
         # NOTE(sileht): we currently support only the asus one
         # so we assume value 0 to 3 are the correct range
-        if percent < 10:
-            targets = range(1, 4)
-        else:
-            targets = range(2, -1, -1)
+        targets = range(1, 4) if percent else range(2, -1, -1)
 
         if targets[-1] == self.last_keyboard_brightness:
             return
