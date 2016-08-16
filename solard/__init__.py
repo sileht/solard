@@ -176,10 +176,10 @@ class Daemon(object):
 
     def update_all_backlights(self, ambient_light=None,
                               screen_pct=None, keyboard_pct=None):
-        if ambient_light < self.conf.screen_brightness_min:
-            ambient_light = self.conf.screen_brightness_min
         if ambient_light is None:
             ambient_light = self.get_ambient_light()
+        if ambient_light < self.conf.screen_brightness_min:
+            ambient_light = self.conf.screen_brightness_min
         if screen_pct is None:
             screen_pct = ambient_light
         if keyboard_pct is None:
