@@ -142,7 +142,7 @@ class Daemon(object):
                         self.raise_if_changed_outside()
                         LOG.info("Dim because of idle user")
                         self.update_all_backlights(
-                            0, self.conf.screen_brightness_dim_min, 100)
+                            None, self.conf.screen_brightness_dim_min, 100)
                     time.sleep(0.1)
                     self.was_already_idle = True
                     self.force_update = True
@@ -153,12 +153,12 @@ class Daemon(object):
                 else:
                     self.was_already_idle = False
                     self.raise_if_changed_outside()
-                    ambient_light = self.get_ambient_light()
+                    raw, normalized = self.get_ambient_light()
                     changed_enough = (
-                        (abs(ambient_light - self.last_ambient_light) >
+                        (abs(normalized - self.last_ambient_light) >
                          self.conf.ambient_light_delta_update))
                     if changed_enough:
-                        self.update_all_backlights(ambient_light)
+                        self.update_all_backlights((raw, normalized))
             except BacklightsChangedOutside:
                 if self.conf.stop_on_outside_change:
                     LOG.info("Brightness changed outside, exiting")
@@ -176,16 +176,16 @@ class Daemon(object):
 
     def update_all_backlights(self, ambient_light=None,
                               screen_pct=None, keyboard_pct=None):
-        if ambient_light is None:
-            ambient_light = self.get_ambient_light()
-        if ambient_light < self.conf.screen_brightness_min:
-            ambient_light = self.conf.screen_brightness_min
+        raw, normalized = ambient_light or self.get_ambient_light()
+        if normalized < self.conf.screen_brightness_min:
+            normalized = self.conf.screen_brightness_min
         if screen_pct is None:
-            screen_pct = ambient_light
+            screen_pct = normalized
         if keyboard_pct is None:
-            keyboard_pct = ambient_light
-        LOG.info("> Change brightness from %d%% to %d%% start" %
-                 (self.last_ambient_light, screen_pct))
+            keyboard_pct = normalized
+
+        LOG.info("Update als:%s(%s), kb:%s, scr:%s" %
+                 (normalized, raw, keyboard_pct, screen_pct))
         with futures.ThreadPoolExecutor(max_workers=20) as executor:
             futs = [
                 executor.submit(self.fade_keyboard_brightness, keyboard_pct),
@@ -194,9 +194,7 @@ class Daemon(object):
             futures.wait(futs)
             for fut in futs:
                 fut.result()
-        LOG.info("> Change brightness from %d%% to %d%% finish" %
-                 (self.last_ambient_light, ambient_light))
-        self.last_ambient_light = ambient_light
+        self.last_ambient_light = normalized
 
     @staticmethod
     def read_sys_value(path):
@@ -245,25 +243,26 @@ class Daemon(object):
         time.sleep(0.2)
 
     def get_ambient_light(self):
+        # This mapping have been done for Asus Zenbook UX303UA, but according
+        # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
+        # previous/other Zenbook can report only 5 raws
         path = ALS_INPUT_SYSPATH_MAP[self.conf.ambient_light_sensor]
         try:
-            value = int(self.read_sys_value(path))
+            raw = int(self.read_sys_value(path))
         except IOError:
             LOG.error("Fail to read ambient light sensor value, "
                       "are udev rules configured correctly ?")
-            return 100
-        LOG.trace("Get ambient light (raw): %s)" % value)
-
-        # This mapping have been done for Asus Zenbook UX303UA, but according
-        # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
-        # previous/other Zenbook can report only 5 values
-        if value > 0:
-            percent = min(math.log10(value) / self.conf.ambient_light_factor
-                          * 100.0, 100)
+            raw, normalized = None, 100
         else:
-            percent = 0
-        LOG.debug("Get ambient light (normalized): %s" % percent)
-        return percent
+            LOG.trace("Get ambient light (raw): %s)" % raw)
+            if raw > 0:
+                normalized = min(math.log10(raw)
+                                 / self.conf.ambient_light_factor
+                                 * 100.0, 100)
+            else:
+                normalized = 0
+            LOG.debug("Get ambient light: %s (%s)" % (normalized, raw))
+        return raw, normalized
 
     def get_screen_brightness_max(self):
         value = int(self.read_sys_value(
