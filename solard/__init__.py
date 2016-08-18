@@ -142,7 +142,7 @@ class Daemon(object):
                         self.raise_if_changed_outside()
                         LOG.info("Dim because of idle user")
                         self.update_all_backlights(
-                            None, self.conf.screen_brightness_dim_min, 100)
+                            self.conf.screen_brightness_dim_min, 100)
                     time.sleep(0.1)
                     self.was_already_idle = True
                     self.force_update = True
@@ -153,12 +153,12 @@ class Daemon(object):
                 else:
                     self.was_already_idle = False
                     self.raise_if_changed_outside()
-                    raw, normalized = self.get_ambient_light()
+                    normalized = self.get_ambient_light()
                     changed_enough = (
                         (abs(normalized - self.last_ambient_light) >
                          self.conf.ambient_light_delta_update))
                     if changed_enough:
-                        self.update_all_backlights((raw, normalized))
+                        self.update_all_backlights()
             except BacklightsChangedOutside:
                 if self.conf.stop_on_outside_change:
                     LOG.info("Brightness changed outside, exiting")
@@ -174,18 +174,17 @@ class Daemon(object):
                 wait = max(0, self.conf.update_interval - elapsed)
                 time.sleep(wait)
 
-    def update_all_backlights(self, ambient_light=None,
-                              screen_pct=None, keyboard_pct=None):
-        raw, normalized = ambient_light or self.get_ambient_light()
-        if normalized < self.conf.screen_brightness_min:
-            normalized = self.conf.screen_brightness_min
+    def update_all_backlights(self, screen_pct=None, keyboard_pct=None):
+        ambient_light = self.get_ambient_light()
+        if ambient_light < self.conf.screen_brightness_min:
+            ambient_light = self.conf.screen_brightness_min
         if screen_pct is None:
-            screen_pct = normalized
+            screen_pct = ambient_light
         if keyboard_pct is None:
-            keyboard_pct = normalized
+            keyboard_pct = ambient_light
 
-        LOG.info("Update als:%s(%s), kb:%s, scr:%s" %
-                 (normalized, raw, keyboard_pct, screen_pct))
+        LOG.info("Update als:%s, kb:%s, scr:%s" %
+                 (ambient_light, keyboard_pct, screen_pct))
         with futures.ThreadPoolExecutor(max_workers=20) as executor:
             futs = [
                 executor.submit(self.fade_keyboard_brightness, keyboard_pct),
@@ -194,7 +193,7 @@ class Daemon(object):
             futures.wait(futs)
             for fut in futs:
                 fut.result()
-        self.last_ambient_light = normalized
+        self.last_ambient_light = ambient_light
 
     @staticmethod
     def read_sys_value(path):
@@ -262,7 +261,7 @@ class Daemon(object):
             else:
                 normalized = 0
             LOG.debug("Get ambient light: %s (%s)" % (normalized, raw))
-        return raw, normalized
+        return normalized
 
     def get_screen_brightness_max(self):
         value = int(self.read_sys_value(
