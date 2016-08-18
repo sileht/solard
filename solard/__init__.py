@@ -146,19 +146,20 @@ class Daemon(object):
                     time.sleep(0.1)
                     self.was_already_idle = True
                     self.force_update = True
-                elif self.force_update:
-                    self.was_already_idle = False
-                    self.update_all_backlights()
-                    self.force_update = False
                 else:
                     self.was_already_idle = False
-                    self.raise_if_changed_outside()
-                    normalized = self.get_ambient_light()
+                    if self.force_update:
+                        normalized = self.get_ambient_light()
+                    else:
+                        self.raise_if_changed_outside()
+                        normalized = self.get_ambient_light_mean()
                     changed_enough = (
                         (abs(normalized - self.last_ambient_light) >
                          self.conf.ambient_light_delta_update))
-                    if changed_enough:
-                        self.update_all_backlights()
+                    if self.force_update or changed_enough:
+                        self.update_all_backlights(normalized, normalized)
+                        self.last_ambient_light = normalized
+                        self.force_update = False
             except BacklightsChangedOutside:
                 if self.conf.stop_on_outside_change:
                     LOG.info("Brightness changed outside, exiting")
@@ -174,17 +175,9 @@ class Daemon(object):
                 wait = max(0, self.conf.update_interval - elapsed)
                 time.sleep(wait)
 
-    def update_all_backlights(self, screen_pct=None, keyboard_pct=None):
-        ambient_light = self.get_ambient_light()
-        if ambient_light < self.conf.screen_brightness_min:
-            ambient_light = self.conf.screen_brightness_min
-        if screen_pct is None:
-            screen_pct = ambient_light
-        if keyboard_pct is None:
-            keyboard_pct = ambient_light
-
-        LOG.info("Update als:%s, kb:%s, scr:%s" %
-                 (ambient_light, keyboard_pct, screen_pct))
+    def update_all_backlights(self, screen_pct, keyboard_pct):
+        LOG.info("Update kb:%s, scr:%s" %
+                 (keyboard_pct, screen_pct))
         with futures.ThreadPoolExecutor(max_workers=20) as executor:
             futs = [
                 executor.submit(self.fade_keyboard_brightness, keyboard_pct),
@@ -193,7 +186,6 @@ class Daemon(object):
             futures.wait(futs)
             for fut in futs:
                 fut.result()
-        self.last_ambient_light = ambient_light
 
     @staticmethod
     def read_sys_value(path):
@@ -241,6 +233,16 @@ class Daemon(object):
         # Ensure next read value will be up to date
         time.sleep(0.2)
 
+    def get_ambient_light_mean(self):
+        wait = self.conf.update_interval / self.conf.ambient_light_measures
+        values = []
+        for i in range(0, self.conf.ambient_light_measures):
+            values.append(self.get_ambient_light())
+            time.sleep(wait)
+        mean = sum(values)/len(values)
+        LOG.trace("means of %s: %s" % (values, mean))
+        return mean
+
     def get_ambient_light(self):
         # This mapping have been done for Asus Zenbook UX303UA, but according
         # https://github.com/danieleds/Asus-Zenbook-Ambient-Light-Sensor-Controller/blob/master/service/main.cpp
@@ -261,6 +263,8 @@ class Daemon(object):
             else:
                 normalized = 0
             LOG.debug("Get ambient light: %s (%s)" % (normalized, raw))
+        if normalized < self.conf.screen_brightness_min:
+            normalized = self.conf.screen_brightness_min
         return normalized
 
     def get_screen_brightness_max(self):
@@ -451,7 +455,11 @@ def main():
                        type=int,
                        help=("Minimun Ambient Light Sensor percentage delta "
                              "before really change the brightness"))
-
+    group.add_argument("--ambient-light-measures",
+                       default=5,
+                       type=int,
+                       help=("Number of ambient light measures to take to "
+                             "calculate the brighness"))
     # Brightness update configuration
     group = parser.add_argument_group("brightness smooth update configuration")
     group.add_argument("--screen-brightness-min", "-m",
