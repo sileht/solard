@@ -14,12 +14,15 @@
 
 import argparse
 from concurrent import futures
+import collections
 import ctypes
-from datetime import datetime
+import enum
 import logging
 import math
 import os
 import time
+import threading
+import signal
 import sys
 import Xlib.display
 import Xlib.Xatom
@@ -103,89 +106,158 @@ class BacklightsChangedOutside(Exception):
     pass
 
 
+class State(enum.Enum):
+    Used = 0
+    Idle = 1
+    Closed = 2
+
+
+class LoopThread(threading.Thread):
+    def __init__(self, method, interval):
+        self.method = method
+        self.interval = interval
+        self._shutdown = threading.Event()
+        self._t = threading.Thread(target=self._loop)
+        self._t.start()
+
+    def _loop(self):
+        while not self._shutdown.is_set():
+            try:
+                self.method()
+            except Exception:
+                LOG.exception("Something wrong append, retrying later.")
+            self._shutdown.wait(self.interval)
+
+    def stop(self):
+        self._shutdown.set()
+
+    def wait(self):
+        self._t.join()
+
+
 class Daemon(object):
     def __init__(self, conf):
         self.conf = conf
         # Set additionnal static configuration
         self.conf.screen_brightness_max = self.get_screen_brightness_max()
 
-        self.force_update = True
         self.last_screen_brightness = self.get_screen_brightness()
         self.last_keyboard_brightness = self.get_keyboard_brightness()
         # Calculate previous value from the screen brightness
-        self.last_ambient_light = (self.last_screen_brightness * 100 /
+        self.ambient_light_last = (self.last_screen_brightness * 100 /
                                    self.conf.screen_brightness_max)
-        if self.last_ambient_light < self.conf.screen_brightness_min:
-            self.last_ambient_light = 0
+        if self.ambient_light_last < self.conf.screen_brightness_min:
+            self.ambient_light_last = 0
+        self.ambient_light_current = self.ambient_light_last
+        self.ambient_light_values = collections.deque(
+            maxlen=self.conf.ambient_light_measures_number)
+
+        self.brightnesses_to_set = (0, 0)
+        self.brightnesses_have_to_change = threading.Event()
 
         self.was_already_idle = False
-        self.xscreensaver_querier = None
+        self.xscreensaver_querier = XScreenSaverQuerier()
+
+        self._threads = []
+        self._shutdown = threading.Event()
+
+        self._state = State.Used
 
     def idle(self):
         if self.conf.idle_dim <= 0:
             return False
-        if self.xscreensaver_querier is None:
-            self.xscreensaver_querier = XScreenSaverQuerier()
         return self.xscreensaver_querier.get_idle() > self.conf.idle_dim * 1000
 
-    def loop(self):
-        while True:
-            start = datetime.utcnow()
+    def _spawn(self, method, interval):
+        self._threads.append(LoopThread(method, interval))
 
-            try:
-                if self.lid_is_closed():
-                    self.was_already_idle = False
-                    if self.last_keyboard_brightness != 0:
-                        self.set_keyboard_brightness(0)
-                elif self.idle():
-                    if not self.was_already_idle:
-                        self.raise_if_changed_outside()
-                        LOG.info("Dim because of idle user")
-                        self.update_all_backlights(
-                            self.conf.screen_brightness_dim_min, 100)
-                    time.sleep(0.1)
-                    self.was_already_idle = True
-                    self.force_update = True
-                else:
-                    self.was_already_idle = False
-                    if self.force_update:
-                        normalized = self.get_ambient_light()
-                    else:
-                        self.raise_if_changed_outside()
-                        normalized = self.get_ambient_light_mean()
-                    changed_enough = (
-                        (abs(normalized - self.last_ambient_light) >
-                         self.conf.ambient_light_delta_update))
-                    if self.force_update or changed_enough:
-                        self.update_all_backlights(normalized, normalized)
-                        self.last_ambient_light = normalized
-                        self.force_update = False
-            except BacklightsChangedOutside:
-                if self.conf.stop_on_outside_change:
-                    LOG.info("Brightness changed outside, exiting")
-                    sys.exit(0)
-                else:
-                    LOG.info("Brightness changed outside, restarting")
-                    self.force_update = True
-            except Exception:
-                LOG.exception("Something wrong append, retrying later.")
+    def run(self):
+        def stop(signum, stack):
+            self._shutdown.set()
 
-            if not self.force_update:
-                elapsed = (datetime.utcnow() - start).total_seconds()
-                wait = max(0, self.conf.update_interval - elapsed)
-                time.sleep(wait)
+        signal.signal(signal.SIGINT, stop)
+        signal.signal(signal.SIGTERM, stop)
 
-    def update_all_backlights(self, screen_pct, keyboard_pct):
-        LOG.info("Update kb:%s, scr:%s" %
-                 (keyboard_pct, screen_pct))
-        with futures.ThreadPoolExecutor(max_workers=20) as executor:
-            futs = [
-                executor.submit(self.fade_keyboard_brightness, keyboard_pct),
-                executor.submit(self.fade_screen_brightness, screen_pct),
-            ]
-            futures.wait(futs)
-            for fut in futs:
-                fut.result()
+        self._spawn(self.event_detection_thread,
+                    self.conf.update_interval)
+        self._spawn(self.brightness_update_thread, 0)
+
+        # .wait() won't work well with signal...
+        while not self._shutdown.is_set():
+            time.sleep(0.5)
+
+        LOG.debug("Exiting...")
+        for t in self._threads:
+            t.stop()
+        for t in self._threads:
+            t.wait()
+
+    def event_detection_thread(self):
+        if self.lid_is_closed():
+            if self._state != State.Closed:
+                LOG.info("LID closed")
+                self.brightnesses_set(0, 0)
+                self._state = State.Closed
+        elif self.idle():
+            if self._state != State.Idle:
+                self.verify_if_something_changed_outside()
+                LOG.info("User idle detected")
+                self.brightnesses_set(
+                    self.conf.screen_brightness_dim_min, 100)
+                self._state = State.Idle
+            self.update_ambient_light_tendency()
+        elif self._state != State.Used:
+            if self._state == State.Closed:
+                LOG.info("LID opened")
+            elif self._state == State.Idle:
+                LOG.info("User back detected")
+            self._state = State.Used
+
+            self.update_ambient_light_tendency()
+            self.brightnesses_set(self.ambient_light_last,
+                                  self.ambient_light_last)
+        else:
+            self.verify_if_something_changed_outside()
+            self.update_ambient_light_tendency()
+            changed_enough = (
+                abs(self.ambient_light_current - self.ambient_light_last)
+                > self.conf.ambient_light_delta_update
+            )
+            if changed_enough:
+                self.brightnesses_set(self.ambient_light_values[-1],
+                                      self.ambient_light_values[-1])
+                self.ambient_light_last = self.ambient_light_values[-1]
+
+    def update_ambient_light_tendency(self):
+        self.ambient_light_values.append(self.get_ambient_light())
+        # Perhaps do better than simple mean
+        values = list(self.ambient_light_values)
+        if len(values) >= 3:
+            values.remove(max(values))
+            values.remove(min(values))
+        self.ambient_light_current = sum(values) / len(values)
+        LOG.trace("self.ambient_light_currents of %s: %s" %
+                  (values, self.ambient_light_current))
+
+    def brightnesses_set(self, scr, kbd):
+        self.brightnesses_to_set = (scr, kbd)
+        self.brightnesses_have_to_change.set()
+
+    def brightness_update_thread(self):
+        self.brightnesses_have_to_change.wait(
+            timeout=self.conf.update_interval)
+        if self.brightnesses_have_to_change.is_set():
+            scr, kbd = self.brightnesses_to_set
+            LOG.info("Update scr:%s, kbd:%s" % (scr, kbd))
+            with futures.ThreadPoolExecutor(max_workers=20) as executor:
+                futs = [
+                    executor.submit(self.fade_keyboard_brightness, kbd),
+                    executor.submit(self.fade_screen_brightness, scr),
+                ]
+                futures.wait(futs)
+                for fut in futs:
+                    fut.result()
+            self.brightnesses_have_to_change.clear()
 
     @staticmethod
     def read_sys_value(path):
@@ -202,7 +274,6 @@ class Daemon(object):
     @classmethod
     def lid_is_closed(cls):
         value = cls.read_sys_value(LID_SYSPATH)
-        LOG.trace("LID is %s" % value)
         return value == "closed"
 
     def setup_logging(self):
@@ -232,16 +303,6 @@ class Daemon(object):
                       "are udev rules configured correctly ?")
         # Ensure next read value will be up to date
         time.sleep(0.2)
-
-    def get_ambient_light_mean(self):
-        wait = self.conf.update_interval / self.conf.ambient_light_measures
-        values = []
-        for i in range(0, self.conf.ambient_light_measures):
-            values.append(self.get_ambient_light())
-            time.sleep(wait)
-        mean = sum(values)/len(values)
-        LOG.trace("means of %s: %s" % (values, mean))
-        return mean
 
     def get_ambient_light(self):
         # This mapping have been done for Asus Zenbook UX303UA, but according
@@ -285,23 +346,32 @@ class Daemon(object):
         LOG.debug("Current screen backlight: %s" % value)
         return value
 
-    def raise_if_changed_outside(self):
-        self.raise_if_keyboard_changed_outside()
-        self.raise_if_screen_changed_outside()
+    def verify_if_something_changed_outside(self):
+        self.verify_if_something_keyboard_changed_outside()
+        self.verify_if_something_screen_changed_outside()
 
-    def raise_if_keyboard_changed_outside(self):
+    def something_have_changed_outside(self):
+        if self.conf.stop_on_outside_change:
+            LOG.info("Brightness changed outside, exiting")
+            self._shutdown.set()
+        else:
+            LOG.info("Brightness changed outside, restarting")
+            self.brightnesses_set(self.ambient_light_last,
+                                  self.ambient_light_last)
+
+    def verify_if_something_keyboard_changed_outside(self):
         keyboard_brightness = self.get_keyboard_brightness()
         changed_outside = keyboard_brightness != self.last_keyboard_brightness
         if changed_outside:
             self.last_keyboard_brightness = keyboard_brightness
-            raise BacklightsChangedOutside
+            self.something_have_changed_outside()
 
-    def raise_if_screen_changed_outside(self):
+    def verify_if_something_screen_changed_outside(self):
         screen_brightness = self.get_screen_brightness()
         changed_outside = screen_brightness != self.last_screen_brightness
         if changed_outside:
             self.last_screen_brightness = screen_brightness
-            raise BacklightsChangedOutside
+            self.something_have_changed_outside()
 
     def fade_screen_brightness(self, target):
         raw_target = int(self.conf.screen_brightness_max * float(target)
@@ -336,7 +406,7 @@ class Daemon(object):
         self.set_screen_brightness(raw_target)
 
     def set_screen_brightness(self, value):
-        self.raise_if_screen_changed_outside()
+        self.verify_if_something_screen_changed_outside()
         try:
             self.write_sys_value(os.path.join(
                 SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight,
@@ -380,7 +450,7 @@ class Daemon(object):
             time.sleep(self.conf.keyboard_brightness_step_duration)
 
     def set_keyboard_brightness(self, value):
-        self.raise_if_keyboard_changed_outside()
+        self.verify_if_something_keyboard_changed_outside()
         try:
             self.write_sys_value(
                 KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight,
@@ -455,11 +525,16 @@ def main():
                        type=int,
                        help=("Minimun Ambient Light Sensor percentage delta "
                              "before really change the brightness"))
-    group.add_argument("--ambient-light-measures",
+    group.add_argument("--ambient-light-measures-number",
                        default=5,
                        type=int,
                        help=("Number of ambient light measures to take to "
                              "calculate the brighness"))
+    group.add_argument("--ambient-light-measures-interval",
+                       default=0.2,
+                       type=float,
+                       help=("Interval between ambient light measures "
+                             "acquisiston."))
     # Brightness update configuration
     group = parser.add_argument_group("brightness smooth update configuration")
     group.add_argument("--screen-brightness-min", "-m",
@@ -498,12 +573,8 @@ def main():
     conf = parser.parse_args()
     daemon = Daemon(conf)
     daemon.setup_logging()
-    try:
-        daemon.enable_ambient_light()
-        daemon.loop()
-    except KeyboardInterrupt:
-        LOG.info("SIGINT received, exiting...")
-        sys.exit(0)
+    daemon.enable_ambient_light()
+    daemon.run()
 
 
 if __name__ == '__main__':
