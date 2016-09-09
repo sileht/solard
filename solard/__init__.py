@@ -78,7 +78,7 @@ class XScreenSaverQuerier(object):
         self.screen = self.dpy.screen()
         self.root = self.screen.root
 
-        self.c_dpy = xlib.XOpenDisplay(os.environ['DISPLAY'])
+        self.c_dpy = xlib.XOpenDisplay(os.environ['DISPLAY'].encode('ascii'))
         self.c_root = xlib.XDefaultRootWindow(self.c_dpy)
         xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
         self.c_xss_info = xss.XScreenSaverAllocInfo()
