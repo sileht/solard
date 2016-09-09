@@ -56,7 +56,7 @@ To expose them two methods:
 (e.g. at the end of GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub), then
 "sudo update-grub" and then reboot. This will disable the Fn+f5 and fn+f6 keys
 
-* Or you can rebuild your kernel with this workaround: https://lkml.org/lkml/2014/2/11/1032
+* Or you can rebuild your kernel with this `workaround <https://gist.github.com/eugene-s/8c10ea8eef87b81cdf6c>`_
   and all Fn keys should works.
 
 /sys permissions with udev
@@ -111,5 +111,5 @@ Using *--stop-on-outside-change* allows to stop the automatic brightness
 configuration with the keyboard or the screen brightness keys are used
 (Fn+f3 -> Fn+f4).
 
-I aslo disable all brightness feature of mate-power-manager (dim on idle,
+I also disable all brightness feature of mate-power-manager (dim on idle,
 Reduce backlight on Battery), to not conflict with this tool.
