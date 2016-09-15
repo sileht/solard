@@ -22,6 +22,7 @@ import math
 import os
 import time
 import threading
+from subprocess import check_call, list2cmdline
 import signal
 import sys
 import Xlib.display
@@ -58,6 +59,9 @@ SUPPORTED_KEYBOARD_BACKLIGHT_MODULES = ["asus::kbd_backlight"]
 
 xlib = ctypes.cdll.LoadLibrary('libX11.so.6')
 xss = ctypes.cdll.LoadLibrary('libXss.so.1')
+
+
+_ROOT = os.path.abspath(os.path.dirname(__file__))
 
 
 class XScreenSaverInfo(ctypes.Structure):
@@ -192,6 +196,13 @@ class Daemon(object):
         for t in self._threads:
             t.wait()
 
+        if self.conf.show_notifications:
+            notify_disabled = ["notify-send", "-c", "device",
+                               "-i", _ROOT + "/inactive.svg",
+                               "Ambient Light Sensor", "Disabled"]
+            LOG.trace(list2cmdline(notify_disabled))
+            check_call(notify_disabled)
+
     def event_detection_thread(self):
         if self.lid_is_closed():
             if self._state != State.Closed:
@@ -301,6 +312,14 @@ class Daemon(object):
         except IOError:
             LOG.error("Fail to enable ambient light sensor, "
                       "are udev rules configured correctly ?")
+
+        if self.conf.show_notifications:
+            notify_enabled = ["notify-send", "-c", "device",
+                              "-i", _ROOT + "/active.svg",
+                              "Ambient Light Sensor", "Enabled"]
+            LOG.trace(list2cmdline(notify_enabled))
+            check_call(notify_enabled)
+
         # Ensure next read value will be up to date
         time.sleep(0.2)
 
@@ -500,6 +519,8 @@ def main():
                         default=2.0,
                         type=float,
                         help="Interval between brightness update")
+    parser.add_argument("--show-notifications", action='store_true',
+                        help="Show notification on daemon startup and shutdown")
 
     # Dim configuration
     group = parser.add_argument_group("idle dim arguments")
