@@ -19,6 +19,7 @@ import ctypes
 import enum
 import logging
 import math
+import operator
 import os
 import time
 import threading
@@ -36,6 +37,7 @@ logging.addLevelName(TRACE, 'TRACE')
 class LoggerAdapter(logging.LoggerAdapter):
     def trace(self, msg, *args, **kwargs):
         self.log(TRACE, msg, *args, **kwargs)
+
 
 LOG = LoggerAdapter(logging.getLogger("solard"), {})
 
@@ -182,8 +184,7 @@ class Daemon(object):
         signal.signal(signal.SIGINT, stop)
         signal.signal(signal.SIGTERM, stop)
 
-        self._spawn(self.event_detection_thread,
-                    self.conf.update_interval)
+        self._spawn(self.event_detection_thread, self.conf.update_interval)
         self._spawn(self.brightness_update_thread, 0)
 
         # .wait() won't work well with signal...
@@ -403,10 +404,10 @@ class Daemon(object):
             return
         elif diff > 0:
             step = 1
-            is_finished = lambda: screen_brightness >= raw_target
+            op = operator.ge
         else:
             step = -1
-            is_finished = lambda: screen_brightness <= raw_target
+            op = operator.le
 
         interval = abs(self.conf.screen_brightness_time / diff)
         # Sleeping less than 5ms doesn't looks good
@@ -416,6 +417,9 @@ class Daemon(object):
 
         LOG.debug("%s -> %s (step:%s, interval: %s)" % (
             screen_brightness, raw_target, step, interval))
+
+        def is_finished():
+            return op(screen_brightness, raw_target)
 
         screen_brightness += step
         while not is_finished():
@@ -520,7 +524,8 @@ def main():
                         type=float,
                         help="Interval between brightness update")
     parser.add_argument("--show-notifications", action='store_true',
-                        help="Show notification on daemon startup and shutdown")
+                        help=("Show notification on daemon startup and "
+                              "shutdown"))
 
     # Dim configuration
     group = parser.add_argument_group("idle dim arguments")
