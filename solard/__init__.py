@@ -58,12 +58,35 @@ ALS_INPUT_SYSPATH_MAP = {
 KEYBOARD_BACKLIGHT_SYSPATH = "/sys/class/leds/%s/brightness"
 SUPPORTED_KEYBOARD_BACKLIGHT_MODULES = ["asus::kbd_backlight"]
 
-
-xlib = ctypes.cdll.LoadLibrary('libX11.so.6')
-xss = ctypes.cdll.LoadLibrary('libXss.so.1')
-
-
 _ROOT = os.path.abspath(os.path.dirname(__file__))
+
+
+class XWindowAttributes(ctypes.Structure):
+    _fields_ = [
+        ('x',                     ctypes.c_int32),
+        ('y',                     ctypes.c_int32),
+        ('width',                 ctypes.c_int32),
+        ('height',                ctypes.c_int32),
+        ('border_width',          ctypes.c_int32),
+        ('depth',                 ctypes.c_int32),
+        ('visual',                ctypes.c_ulong),
+        ('root',                  ctypes.c_ulong),
+        ('class',                 ctypes.c_int32),
+        ('bit_gravity',           ctypes.c_int32),
+        ('win_gravity',           ctypes.c_int32),
+        ('backing_store',         ctypes.c_int32),
+        ('backing_planes',        ctypes.c_ulong),
+        ('backing_pixel',         ctypes.c_ulong),
+        ('save_under',            ctypes.c_int32),
+        ('colourmap',             ctypes.c_ulong),
+        ('mapinstalled',          ctypes.c_uint32),
+        ('map_state',             ctypes.c_uint32),
+        ('all_event_masks',       ctypes.c_ulong),
+        ('your_event_mask',       ctypes.c_ulong),
+        ('do_not_propagate_mask', ctypes.c_ulong),
+        ('override_redirect',     ctypes.c_int32),
+        ('screen',                ctypes.c_ulong)
+    ]
 
 
 class XScreenSaverInfo(ctypes.Structure):
@@ -76,6 +99,22 @@ class XScreenSaverInfo(ctypes.Structure):
                 ('event_mask',  ctypes.c_ulong)]  # events
 
 
+class Display(ctypes.Structure):
+    pass
+
+
+xlib = ctypes.cdll.LoadLibrary('libX11.so.6')
+xlib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+xlib.XOpenDisplay.restype = ctypes.POINTER(Display)
+xlib.XDefaultScreen.argtypes = [ctypes.POINTER(Display)]
+xlib.XDefaultScreen.restype = ctypes.c_int
+xlib.XDefaultRootWindow.argtypes = [ctypes.POINTER(Display), ctypes.c_int]
+xlib.XDefaultRootWindow.restype = ctypes.POINTER(XWindowAttributes)
+
+xss = ctypes.cdll.LoadLibrary('libXss.so.1')
+xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
+
+
 class XScreenSaverQuerier(object):
     # This create two X clients..., but Xlib python binding doesn't have xss
     # extention
@@ -84,9 +123,9 @@ class XScreenSaverQuerier(object):
         self.screen = self.dpy.screen()
         self.root = self.screen.root
 
-        self.c_dpy = xlib.XOpenDisplay(os.environ['DISPLAY'].encode('ascii'))
-        self.c_root = xlib.XDefaultRootWindow(self.c_dpy)
-        xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
+        self.c_dpy = xlib.XOpenDisplay(os.environ['DISPLAY'])
+        self.c_screen = xlib.XDefaultScreen(self.c_dpy)
+        self.c_root = xlib.XDefaultRootWindow(self.c_dpy, self.c_screen)
         self.c_xss_info = xss.XScreenSaverAllocInfo()
 
     def get_idle(self):
