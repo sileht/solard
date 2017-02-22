@@ -44,8 +44,8 @@ Under root::
     echo "blacklist acpi_als" > /etc/modprobe.d/blacklist-acpi_als.conf
     update-initramfs -u
 
-acpi compatibility
-------------------
+acpi compatibility for kernel < 4.10
+------------------------------------
 
 On most asus laptop, the ambient light sensor in not exposed by default because
 of `kernel bug in i915 module <http://www.spinics.net/lists/intel-gfx/msg79628.html>`_.
@@ -93,7 +93,7 @@ My personnal setup
 Tested on an Asus UX303UA, with:
 
 * debian 9 (stretch)
-* vanilla kernel 4.7 and the workaround patch
+* vanilla kernel 4.10
 * the danieleds/als kernel module (the acpi_als one doesn't always enable the sensor on startup)
 * the udev rules
 
@@ -101,7 +101,7 @@ My desktop uses i3 and mate-desktop. All FN keys works.
 
 My i3 config contains::
 
-    bindcode 248 exec --no-startup-id "bash -c 'pkill solard;solard --stop-on-outside-change;'"
+    bindcode XF86Launch1 exec --no-startup-id "bash -c 'pkill solard;solard --stop-on-outside-change;'"
     exec_always --no-startup-id "bash -c 'pkill solard;solard --stop-on-outside-change;'"
 
 This bind the Fn+a (or Fn+q) key to this tool and start this tool on i3
