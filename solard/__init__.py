@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#
 # Licensed under the Apache License, Version 4.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,7 +14,6 @@
 # limitations under the License.
 
 import argparse
-from concurrent import futures
 import collections
 import ctypes
 import enum
@@ -21,17 +21,19 @@ import logging
 import math
 import operator
 import os
-import time
-import threading
-from subprocess import check_call, list2cmdline
 import signal
 import sys
-import Xlib.display
+import threading
+import time
+from concurrent import futures
+from subprocess import check_call, list2cmdline
+
 import Xlib.Xatom
+import Xlib.display
 
 
 TRACE = 5
-logging.addLevelName(TRACE, 'TRACE')
+logging.addLevelName(TRACE, "TRACE")
 
 
 class LoggerAdapter(logging.LoggerAdapter):
@@ -50,9 +52,10 @@ ALS_SYSPATH = "/sys/bus/acpi/drivers/%s/ACPI0008:00"
 SUPPORTED_ALS_MODULES = ["acpi_als", "als"]
 
 ALS_INPUT_SYSPATH_MAP = {
-    "acpi_als": os.path.join(ALS_SYSPATH % "acpi_als",
-                             "iio:device0/in_illuminance_input"),
-    "als": os.path.join(ALS_SYSPATH % "als", "ali")
+    "acpi_als": os.path.join(
+        ALS_SYSPATH % "acpi_als", "iio:device0/in_illuminance_input"
+    ),
+    "als": os.path.join(ALS_SYSPATH % "als", "ali"),
 }
 
 KEYBOARD_BACKLIGHT_SYSPATH = "/sys/class/leds/%s/brightness"
@@ -63,47 +66,54 @@ _ROOT = os.path.abspath(os.path.dirname(__file__))
 
 class XWindowAttributes(ctypes.Structure):
     _fields_ = [
-        ('x',                     ctypes.c_int32),
-        ('y',                     ctypes.c_int32),
-        ('width',                 ctypes.c_int32),
-        ('height',                ctypes.c_int32),
-        ('border_width',          ctypes.c_int32),
-        ('depth',                 ctypes.c_int32),
-        ('visual',                ctypes.c_ulong),
-        ('root',                  ctypes.c_ulong),
-        ('class',                 ctypes.c_int32),
-        ('bit_gravity',           ctypes.c_int32),
-        ('win_gravity',           ctypes.c_int32),
-        ('backing_store',         ctypes.c_int32),
-        ('backing_planes',        ctypes.c_ulong),
-        ('backing_pixel',         ctypes.c_ulong),
-        ('save_under',            ctypes.c_int32),
-        ('colourmap',             ctypes.c_ulong),
-        ('mapinstalled',          ctypes.c_uint32),
-        ('map_state',             ctypes.c_uint32),
-        ('all_event_masks',       ctypes.c_ulong),
-        ('your_event_mask',       ctypes.c_ulong),
-        ('do_not_propagate_mask', ctypes.c_ulong),
-        ('override_redirect',     ctypes.c_int32),
-        ('screen',                ctypes.c_ulong)
+        ("x", ctypes.c_int32),
+        ("y", ctypes.c_int32),
+        ("width", ctypes.c_int32),
+        ("height", ctypes.c_int32),
+        ("border_width", ctypes.c_int32),
+        ("depth", ctypes.c_int32),
+        ("visual", ctypes.c_ulong),
+        ("root", ctypes.c_ulong),
+        ("class", ctypes.c_int32),
+        ("bit_gravity", ctypes.c_int32),
+        ("win_gravity", ctypes.c_int32),
+        ("backing_store", ctypes.c_int32),
+        ("backing_planes", ctypes.c_ulong),
+        ("backing_pixel", ctypes.c_ulong),
+        ("save_under", ctypes.c_int32),
+        ("colourmap", ctypes.c_ulong),
+        ("mapinstalled", ctypes.c_uint32),
+        ("map_state", ctypes.c_uint32),
+        ("all_event_masks", ctypes.c_ulong),
+        ("your_event_mask", ctypes.c_ulong),
+        ("do_not_propagate_mask", ctypes.c_ulong),
+        ("override_redirect", ctypes.c_int32),
+        ("screen", ctypes.c_ulong),
     ]
 
 
 class XScreenSaverInfo(ctypes.Structure):
-    """ typedef struct { ... } XScreenSaverInfo; """
-    _fields_ = [('window',      ctypes.c_ulong),  # screen saver window
-                ('state',       ctypes.c_int),    # off,on,disabled
-                ('kind',        ctypes.c_int),    # blanked,internal,external
-                ('since',       ctypes.c_ulong),  # milliseconds
-                ('idle',        ctypes.c_ulong),  # milliseconds
-                ('event_mask',  ctypes.c_ulong)]  # events
+    """
+    XScreenSaverInfo typedef.
+
+    typedef struct { ... } XScreenSaverInfo;
+    """
+
+    _fields_ = [
+        ("window", ctypes.c_ulong),  # screen saver window
+        ("state", ctypes.c_int),  # off,on,disabled
+        ("kind", ctypes.c_int),  # blanked,internal,external
+        ("since", ctypes.c_ulong),  # milliseconds
+        ("idle", ctypes.c_ulong),  # milliseconds
+        ("event_mask", ctypes.c_ulong),
+    ]  # events
 
 
 class Display(ctypes.Structure):
     pass
 
 
-xlib = ctypes.cdll.LoadLibrary('libX11.so.6')
+xlib = ctypes.cdll.LoadLibrary("libX11.so.6")
 xlib.XOpenDisplay.argtypes = [ctypes.c_char_p]
 xlib.XOpenDisplay.restype = ctypes.POINTER(Display)
 xlib.XDefaultScreen.argtypes = [ctypes.POINTER(Display)]
@@ -111,7 +121,7 @@ xlib.XDefaultScreen.restype = ctypes.c_int
 xlib.XDefaultRootWindow.argtypes = [ctypes.POINTER(Display), ctypes.c_int]
 xlib.XDefaultRootWindow.restype = ctypes.POINTER(XWindowAttributes)
 
-xss = ctypes.cdll.LoadLibrary('libXss.so.1')
+xss = ctypes.cdll.LoadLibrary("libXss.so.1")
 xss.XScreenSaverAllocInfo.restype = ctypes.POINTER(XScreenSaverInfo)
 
 
@@ -123,21 +133,21 @@ class XScreenSaverQuerier(object):
         self.screen = self.dpy.screen()
         self.root = self.screen.root
 
-        self.c_dpy = xlib.XOpenDisplay(os.environ['DISPLAY'])
+        self.c_dpy = xlib.XOpenDisplay(os.environ["DISPLAY"].encode())
         self.c_screen = xlib.XDefaultScreen(self.c_dpy)
         self.c_root = xlib.XDefaultRootWindow(self.c_dpy, self.c_screen)
         self.c_xss_info = xss.XScreenSaverAllocInfo()
 
     def get_idle(self):
         active_windows = self.root.get_property(
-            self.dpy.get_atom("_NET_ACTIVE_WINDOW"),
-            Xlib.Xatom.WINDOW, 0, 4).value
+            self.dpy.get_atom("_NET_ACTIVE_WINDOW"), Xlib.Xatom.WINDOW, 0, 4
+        ).value
         if active_windows:
-            win = self.dpy.create_resource_object('window', active_windows[0])
+            win = self.dpy.create_resource_object("window", active_windows[0])
             size = win.get_geometry()
             is_fullscreen = (
-                size._data["width"] == self.screen.width_in_pixels and
-                size._data["height"] == self.screen.height_in_pixels
+                size._data["width"] == self.screen.width_in_pixels
+                and size._data["height"] == self.screen.height_in_pixels
             )
             if is_fullscreen:
                 LOG.debug("Fullscreen App detected, no dim")
@@ -189,13 +199,15 @@ class Daemon(object):
         self.last_screen_brightness = self.get_screen_brightness()
         self.last_keyboard_brightness = self.get_keyboard_brightness()
         # Calculate previous value from the screen brightness
-        self.ambient_light_last = (self.last_screen_brightness * 100 /
-                                   self.conf.screen_brightness_max)
+        self.ambient_light_last = (
+            self.last_screen_brightness * 100 / self.conf.screen_brightness_max
+        )
         if self.ambient_light_last < self.conf.screen_brightness_min:
             self.ambient_light_last = 0
         self.ambient_light_current = self.ambient_light_last
         self.ambient_light_values = collections.deque(
-            maxlen=self.conf.ambient_light_measures_number)
+            maxlen=self.conf.ambient_light_measures_number
+        )
 
         self.brightnesses_to_set = (0, 0)
         self.brightnesses_have_to_change = threading.Event()
@@ -237,9 +249,15 @@ class Daemon(object):
             t.wait()
 
         if self.conf.show_notifications:
-            notify_disabled = ["notify-send", "-c", "device",
-                               "-i", _ROOT + "/inactive.svg",
-                               "Ambient Light Sensor", "Disabled"]
+            notify_disabled = [
+                "notify-send",
+                "-c",
+                "device",
+                "-i",
+                _ROOT + "/inactive.svg",
+                "Ambient Light Sensor",
+                "Disabled",
+            ]
             LOG.trace(list2cmdline(notify_disabled))
             check_call(notify_disabled)
 
@@ -253,8 +271,7 @@ class Daemon(object):
             if self._state != State.Idle:
                 self.verify_if_something_changed_outside()
                 LOG.info("User idle detected")
-                self.brightnesses_set(
-                    self.conf.screen_brightness_dim_min, 100)
+                self.brightnesses_set(self.conf.screen_brightness_dim_min, 100)
                 self._state = State.Idle
             self.update_ambient_light_tendency()
         elif self._state != State.Used:
@@ -265,8 +282,7 @@ class Daemon(object):
             self._state = State.Used
 
             self.update_ambient_light_tendency()
-            self.brightnesses_set(self.ambient_light_last,
-                                  self.ambient_light_last)
+            self.brightnesses_set(self.ambient_light_last, self.ambient_light_last)
         else:
             self.verify_if_something_changed_outside()
             self.update_ambient_light_tendency()
@@ -275,8 +291,9 @@ class Daemon(object):
                 > self.conf.ambient_light_delta_update
             )
             if changed_enough:
-                self.brightnesses_set(self.ambient_light_values[-1],
-                                      self.ambient_light_values[-1])
+                self.brightnesses_set(
+                    self.ambient_light_values[-1], self.ambient_light_values[-1]
+                )
                 self.ambient_light_last = self.ambient_light_values[-1]
 
     def update_ambient_light_tendency(self):
@@ -287,19 +304,20 @@ class Daemon(object):
             values.remove(max(values))
             values.remove(min(values))
         self.ambient_light_current = sum(values) / len(values)
-        LOG.trace("self.ambient_light_currents of %s: %s" %
-                  (values, self.ambient_light_current))
+        LOG.trace(
+            "self.ambient_light_currents of %s: %s"
+            % (values, self.ambient_light_current)
+        )
 
     def brightnesses_set(self, scr, kbd):
         self.brightnesses_to_set = (scr, kbd)
         self.brightnesses_have_to_change.set()
 
     def brightness_update_thread(self):
-        self.brightnesses_have_to_change.wait(
-            timeout=self.conf.update_interval)
+        self.brightnesses_have_to_change.wait(timeout=self.conf.update_interval)
         if self.brightnesses_have_to_change.is_set():
             scr, kbd = self.brightnesses_to_set
-            LOG.info("Update scr:%s, kbd:%s" % (scr, kbd))
+            LOG.info("Update scr:%s, kbd:%s", scr, kbd)
             with futures.ThreadPoolExecutor(max_workers=20) as executor:
                 futs = [
                     executor.submit(self.fade_keyboard_brightness, kbd),
@@ -319,7 +337,7 @@ class Daemon(object):
     @staticmethod
     def write_sys_value(path, value):
         LOG.trace("echo %s > %s" % (value, path))
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             f.write(value)
 
     @classmethod
@@ -350,13 +368,21 @@ class Daemon(object):
         try:
             self.write_sys_value(path, "1")
         except IOError:
-            LOG.error("Fail to enable ambient light sensor, "
-                      "are udev rules configured correctly ?")
+            LOG.error(
+                "Fail to enable ambient light sensor, "
+                "are udev rules configured correctly ?"
+            )
 
         if self.conf.show_notifications:
-            notify_enabled = ["notify-send", "-c", "device",
-                              "-i", _ROOT + "/active.svg",
-                              "Ambient Light Sensor", "Enabled"]
+            notify_enabled = [
+                "notify-send",
+                "-c",
+                "device",
+                "-i",
+                _ROOT + "/active.svg",
+                "Ambient Light Sensor",
+                "Enabled",
+            ]
             LOG.trace(list2cmdline(notify_enabled))
             check_call(notify_enabled)
 
@@ -371,38 +397,54 @@ class Daemon(object):
         try:
             raw = int(self.read_sys_value(path))
         except IOError:
-            LOG.error("Fail to read ambient light sensor value, "
-                      "are udev rules configured correctly ?")
+            LOG.error(
+                "Fail to read ambient light sensor value, "
+                "are udev rules configured correctly ?"
+            )
             raw, normalized = None, 100
         else:
             LOG.trace("Get ambient light (raw): %s)" % raw)
             if raw > 0:
-                normalized = min(math.log10(raw)
-                                 / self.conf.ambient_light_factor
-                                 * 100.0, 100)
+                normalized = min(
+                    math.log10(raw) / self.conf.ambient_light_factor * 100.0, 100
+                )
             else:
                 normalized = 0
-            LOG.debug("Get ambient light: %s (%s)" % (normalized, raw))
+            LOG.debug("Get ambient light: %s (%s)", (normalized, raw))
         if normalized < self.conf.screen_brightness_min:
             normalized = self.conf.screen_brightness_min
         return normalized
 
     def get_screen_brightness_max(self):
-        value = int(self.read_sys_value(
-            os.path.join(SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight,
-                         "max_brightness")))
+        value = int(
+            self.read_sys_value(
+                os.path.join(
+                    SCREEN_BACKLIGHT_SYSPATH,
+                    self.conf.screen_backlight,
+                    "max_brightness",
+                )
+            )
+        )
         LOG.debug("Get screen backlight maximum: %d", value)
         return value
 
     def get_screen_brightness(self):
         try:
-            value = int(self.read_sys_value(os.path.join(
-                SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight,
-                "brightness")))
+            value = int(
+                self.read_sys_value(
+                    os.path.join(
+                        SCREEN_BACKLIGHT_SYSPATH,
+                        self.conf.screen_backlight,
+                        "brightness",
+                    )
+                )
+            )
         except IOError:
-            LOG.error("Fail to get screen brightness, "
-                      "are udev rules configured correctly ? ")
-        LOG.debug("Current screen backlight: %s" % value)
+            LOG.error(
+                "Fail to get screen brightness, "
+                "are udev rules configured correctly ? "
+            )
+        LOG.debug("Current screen backlight: %s", value)
         return value
 
     def verify_if_something_changed_outside(self):
@@ -415,8 +457,7 @@ class Daemon(object):
             self._shutdown.set()
         else:
             LOG.info("Brightness changed outside, restarting")
-            self.brightnesses_set(self.ambient_light_last,
-                                  self.ambient_light_last)
+            self.brightnesses_set(self.ambient_light_last, self.ambient_light_last)
 
     def verify_if_something_keyboard_changed_outside(self):
         keyboard_brightness = self.get_keyboard_brightness()
@@ -433,9 +474,8 @@ class Daemon(object):
             self.something_have_changed_outside()
 
     def fade_screen_brightness(self, target):
-        raw_target = int(self.conf.screen_brightness_max * float(target)
-                         / 100.0)
-        LOG.debug("Set screen backlight to %d%% (%d%%)" % (target, raw_target))
+        raw_target = int(self.conf.screen_brightness_max * float(target) / 100.0)
+        LOG.debug("Set screen backlight to %d%% (%d%%)", target, raw_target)
         screen_brightness = self.get_screen_brightness()
 
         diff = raw_target - screen_brightness
@@ -454,8 +494,13 @@ class Daemon(object):
             interval *= 2
             step *= 2
 
-        LOG.debug("%s -> %s (step:%s, interval: %s)" % (
-            screen_brightness, raw_target, step, interval))
+        LOG.debug(
+            "%s -> %s (step:%s, interval: %s)",
+            screen_brightness,
+            raw_target,
+            step,
+            interval,
+        )
 
         def is_finished():
             return op(screen_brightness, raw_target)
@@ -470,13 +515,17 @@ class Daemon(object):
     def set_screen_brightness(self, value):
         self.verify_if_something_screen_changed_outside()
         try:
-            self.write_sys_value(os.path.join(
-                SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight,
-                "brightness"
-            ), "%d" % value)
+            self.write_sys_value(
+                os.path.join(
+                    SCREEN_BACKLIGHT_SYSPATH, self.conf.screen_backlight, "brightness"
+                ),
+                "%d" % value,
+            )
         except IOError:
-            LOG.error("Fail to set screen brightness, "
-                      "are udev rules configured correctly ? ")
+            LOG.error(
+                "Fail to set screen brightness, "
+                "are udev rules configured correctly ? "
+            )
         self.last_screen_brightness = value
 
     def get_keyboard_brightness(self):
@@ -487,12 +536,17 @@ class Daemon(object):
         # bit...
         time.sleep(0.1)
         try:
-            value = int(self.read_sys_value(
-                KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight))
+            value = int(
+                self.read_sys_value(
+                    KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight
+                )
+            )
         except IOError:
-            LOG.error("Fail to set keyboard backlight, "
-                      "are udev rules configured correctly ?")
-        LOG.debug("Current keyboard backlight: %s" % value)
+            LOG.error(
+                "Fail to set keyboard backlight, "
+                "are udev rules configured correctly ?"
+            )
+        LOG.debug("Current keyboard backlight: %s", value)
         return value
 
     def fade_keyboard_brightness(self, percent):
@@ -515,125 +569,172 @@ class Daemon(object):
         self.verify_if_something_keyboard_changed_outside()
         try:
             self.write_sys_value(
-                KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight,
-                "%s" % value)
+                KEYBOARD_BACKLIGHT_SYSPATH % self.conf.keyboard_backlight, "%s" % value
+            )
         except IOError:
-            LOG.error("Fail to set keyboard backlight, "
-                      "are udev rules configured correctly ?")
+            LOG.error(
+                "Fail to set keyboard backlight, "
+                "are udev rules configured correctly ?"
+            )
         self.last_keyboard_brightness = value
 
 
 def main():
     available_screen_backlight_modules = [
-        mod for mod in SUPPORTED_SCREEN_BACKLIGHT_MODULES
-        if os.path.exists(os.path.join(SCREEN_BACKLIGHT_SYSPATH, mod))]
+        mod
+        for mod in SUPPORTED_SCREEN_BACKLIGHT_MODULES
+        if os.path.exists(os.path.join(SCREEN_BACKLIGHT_SYSPATH, mod))
+    ]
     if not available_screen_backlight_modules:
-        LOG.error("No supported backlight found (%s)" %
-                  SUPPORTED_SCREEN_BACKLIGHT_MODULES)
+        LOG.error(
+            "No supported backlight found (%s)", SUPPORTED_SCREEN_BACKLIGHT_MODULES
+        )
         sys.exit(1)
 
     available_als_modules = [
-        mod for mod in SUPPORTED_ALS_MODULES
-        if os.path.exists(ALS_SYSPATH % mod)
+        mod for mod in SUPPORTED_ALS_MODULES if os.path.exists(ALS_SYSPATH % mod)
     ]
     if not available_als_modules:
-        LOG.error("No support ambient light sensor found (%s)" %
-                  SUPPORTED_ALS_MODULES)
+        LOG.error("No support ambient light sensor found (%s)", SUPPORTED_ALS_MODULES)
         sys.exit(1)
 
     available_keyboard_backlight_modules = [
-        mod for mod in SUPPORTED_KEYBOARD_BACKLIGHT_MODULES
+        mod
+        for mod in SUPPORTED_KEYBOARD_BACKLIGHT_MODULES
         if os.path.exists(KEYBOARD_BACKLIGHT_SYSPATH % mod)
     ]
 
     parser = argparse.ArgumentParser(
-        description=("Screen and Keyboard backlight controls via "
-                     "Ambient Light Sensor ")
+        description=(
+            "Screen and Keyboard backlight controls via " "Ambient Light Sensor "
+        )
     )
-    parser.add_argument('--verbose', '-v', action='store_true')
-    parser.add_argument('--debug', '-d', action='store_true')
-    parser.add_argument('--quiet', '-q', action='store_true')
-    parser.add_argument('--log', help=("log file, disable stdout output and "
-                                       "set log level to DEBUG"))
-    parser.add_argument("--stop-on-outside-change", action='store_true',
-                        help=("If brightness is changed outside the "
-                              "daemon stop."))
-    parser.add_argument("--update-interval", "-i",
-                        default=2.0,
-                        type=float,
-                        help="Interval between brightness update")
-    parser.add_argument("--show-notifications", action='store_true',
-                        help=("Show notification on daemon startup and "
-                              "shutdown"))
+    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--debug", "-d", action="store_true")
+    parser.add_argument("--quiet", "-q", action="store_true")
+    parser.add_argument(
+        "--log", help=("log file, disable stdout output and " "set log level to DEBUG")
+    )
+    parser.add_argument(
+        "--stop-on-outside-change",
+        action="store_true",
+        help=("If brightness is changed outside the " "daemon stop."),
+    )
+    parser.add_argument(
+        "--update-interval",
+        "-i",
+        default=2.0,
+        type=float,
+        help="Interval between brightness update",
+    )
+    parser.add_argument(
+        "--show-notifications",
+        action="store_true",
+        help=("Show notification on daemon startup and " "shutdown"),
+    )
 
     # Dim configuration
     group = parser.add_argument_group("idle dim arguments")
-    group.add_argument("--idle-dim",
-                       default=0,
-                       type=float,
-                       help=("Idle time before dim screen in seconds. "
-                             "(0 to disable)"))
-    group.add_argument("--screen-brightness-dim-min",
-                       default=5,
-                       type=int,
-                       help=("Minimal percent of allowed brightness for "
-                             "idle dim"))
+    group.add_argument(
+        "--idle-dim",
+        default=0,
+        type=float,
+        help=("Idle time before dim screen in seconds. " "(0 to disable)"),
+    )
+    group.add_argument(
+        "--screen-brightness-dim-min",
+        default=5,
+        type=int,
+        help=("Minimal percent of allowed brightness for " "idle dim"),
+    )
 
     # Ambient light sensor configuration
     group = parser.add_argument_group("ambient light sensor adjustments")
-    group.add_argument("--ambient-light-factor", "-f",
-                       default=5.5,
-                       type=float,
-                       help="Ambient Light to brightness factor")
-    group.add_argument("--ambient-light-delta-update", "-u",
-                       default=3,
-                       type=int,
-                       help=("Minimun Ambient Light Sensor percentage delta "
-                             "before really change the brightness"))
-    group.add_argument("--ambient-light-measures-number",
-                       default=5,
-                       type=int,
-                       help=("Number of ambient light measures to take to "
-                             "calculate the brighness"))
-    group.add_argument("--ambient-light-measures-interval",
-                       default=0.2,
-                       type=float,
-                       help=("Interval between ambient light measures "
-                             "acquisiston."))
+    group.add_argument(
+        "--ambient-light-factor",
+        "-f",
+        default=3.5,
+        type=float,
+        help="Ambient Light to brightness factor",
+    )
+    group.add_argument(
+        "--ambient-light-delta-update",
+        "-u",
+        default=3,
+        type=int,
+        help=(
+            "Minimun Ambient Light Sensor percentage delta "
+            "before really change the brightness"
+        ),
+    )
+    group.add_argument(
+        "--ambient-light-measures-number",
+        default=5,
+        type=int,
+        help=("Number of ambient light measures to take to " "calculate the brighness"),
+    )
+    group.add_argument(
+        "--ambient-light-measures-interval",
+        default=0.2,
+        type=float,
+        help=("Interval between ambient light measures " "acquisiston."),
+    )
     # Brightness update configuration
     group = parser.add_argument_group("brightness smooth update configuration")
-    group.add_argument("--screen-brightness-min", "-m",
-                       default=5,
-                       type=int,
-                       help="Minimal percent of allowed brightness")
-    group.add_argument("--screen-brightness-time", "-t",
-                       default=0.5,
-                       type=float,
-                       help="Duration of screen brightness change in seconds")
-    group.add_argument("--keyboard-backlight-threshold",
-                       default=10,
-                       type=float,
-                       help="Keyboard backlight activation threshold (0-100)")
-    group.add_argument("--keyboard-brightness-step-duration",
-                       default=0.005,
-                       type=float,
-                       help="Duration between keyboard brightness step")
+    group.add_argument(
+        "--screen-brightness-min",
+        "-m",
+        default=5,
+        type=int,
+        help="Minimal percent of allowed brightness",
+    )
+    group.add_argument(
+        "--screen-brightness-time",
+        "-t",
+        default=0.5,
+        type=float,
+        help="Duration of screen brightness change in seconds",
+    )
+    group.add_argument(
+        "--keyboard-backlight-threshold",
+        default=10,
+        type=float,
+        help="Keyboard backlight activation threshold (0-100)",
+    )
+    group.add_argument(
+        "--keyboard-brightness-step-duration",
+        default=0.005,
+        type=float,
+        help="Duration between keyboard brightness step",
+    )
 
     # Drivers config
     group = parser.add_argument_group("drivers selections")
-    group.add_argument("--screen-backlight", "-s",
-                       default=available_screen_backlight_modules[0],
-                       choices=available_screen_backlight_modules,
-                       help="Screen backlight kernel module")
-    group.add_argument("--keyboard-backlight", "-k",
-                       default=(available_keyboard_backlight_modules[0] if
-                                available_keyboard_backlight_modules else 0),
-                       choices=available_keyboard_backlight_modules,
-                       help="Keyboard backlight kernel module")
-    group.add_argument("--ambient-light-sensor", "-a",
-                       default=available_als_modules[0],
-                       choices=available_als_modules,
-                       help="Ambient Light Sensor kernel module")
+    group.add_argument(
+        "--screen-backlight",
+        "-s",
+        default=available_screen_backlight_modules[0],
+        choices=available_screen_backlight_modules,
+        help="Screen backlight kernel module",
+    )
+    group.add_argument(
+        "--keyboard-backlight",
+        "-k",
+        default=(
+            available_keyboard_backlight_modules[0]
+            if available_keyboard_backlight_modules
+            else 0
+        ),
+        choices=available_keyboard_backlight_modules,
+        help="Keyboard backlight kernel module",
+    )
+    group.add_argument(
+        "--ambient-light-sensor",
+        "-a",
+        default=available_als_modules[0],
+        choices=available_als_modules,
+        help="Ambient Light Sensor kernel module",
+    )
 
     conf = parser.parse_args()
     daemon = Daemon(conf)
@@ -642,5 +743,5 @@ def main():
     daemon.run()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
